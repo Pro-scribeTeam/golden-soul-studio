@@ -22,9 +22,11 @@ const IMAGE_MODELS = [
 ];
 
 const EDIT_MODELS = [
-  { value: "flux-kontext-max", label: "FLUX Kontext Max — Highest Quality" },
-  { value: "flux-kontext-pro", label: "FLUX Kontext Pro — Fast & Precise" },
-  { value: "flux-dev",         label: "FLUX Dev — Creative Edits" },
+  { value: "nano-banana-pro",  label: "Nano Banana Pro — Best for Jeff Photos ★", group: "GOOGLE" },
+  { value: "nano-banana-2",    label: "Nano Banana 2 — Superior Face Accuracy",   group: "GOOGLE" },
+  { value: "flux-kontext-max", label: "FLUX Kontext Max — Highest Quality Edit",  group: "FLUX KONTEXT" },
+  { value: "flux-kontext-pro", label: "FLUX Kontext Pro — Fast & Precise",        group: "FLUX KONTEXT" },
+  { value: "flux-kontext-dev", label: "FLUX Kontext Dev — Creative Edits",        group: "FLUX KONTEXT" },
 ];
 
 const LIGHTING_PRESETS = [
@@ -217,12 +219,12 @@ export default function ImageGeneration() {
   const [variations, setVariations]     = useState(1);
 
   // Edit state
-  const [editModel, setEditModel]       = useState("flux-kontext-max");
+  const [editModel, setEditModel]       = useState("nano-banana-pro");
   const [editPrompt, setEditPrompt]     = useState("");
   const [editStrength, setEditStrength] = useState(80);
 
   // Upscale state
-  const [upscaleScale, setUpscaleScale] = useState(4);
+  const [upscaleResolution, setUpscaleResolution] = useState("4k");
 
   // Shared image upload state
   const [imageUrl, setImageUrl]         = useState("");
@@ -302,7 +304,7 @@ export default function ImageGeneration() {
 
   const upscaleImage = () => {
     if (!imageUrl) { setError("Please upload an image."); return; }
-    run("/api/wavespeed/upscale", { imageUrl, scale: upscaleScale }, "upscale");
+    run("/api/wavespeed/upscale", { imageUrl, resolution: upscaleResolution }, "upscale");
   };
 
   const removeBg = () => {
@@ -479,23 +481,23 @@ export default function ImageGeneration() {
 
           <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Scale Factor</label>
+              <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Target Resolution</label>
               <div className="flex gap-3">
-                {[2, 4].map((s) => (
+                {["2k", "4k", "8k"].map((r) => (
                   <button
-                    key={s}
-                    onClick={() => setUpscaleScale(s)}
-                    className={`flex-1 py-4 rounded-xl text-lg font-heading font-bold transition-all ${
-                      upscaleScale === s
+                    key={r}
+                    onClick={() => setUpscaleResolution(r)}
+                    className={`flex-1 py-4 rounded-xl text-lg font-heading font-bold uppercase transition-all ${
+                      upscaleResolution === r
                         ? "bg-[#C9A84C] text-[#0A0A0F]"
                         : "bg-[#111118] border border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
                     }`}
                   >
-                    {s}×
+                    {r}
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-[#F5F0E844] font-body">Powered by AuraSR — AI super-resolution</p>
+              <p className="text-xs text-[#F5F0E844] font-body">Powered by WaveSpeed Image Upscaler</p>
             </div>
 
             <div className="bg-[#C9A84C0D] border border-[#C9A84C22] rounded-xl p-4 space-y-1">
@@ -504,7 +506,7 @@ export default function ImageGeneration() {
             </div>
 
             <GoldButton size="lg" onClick={upscaleImage} loading={loading} disabled={loading || uploadLoading || !imageUrl} className="w-full">
-              {uploadLoading ? "Uploading..." : loading ? "Upscaling..." : `Upscale ${upscaleScale}×`}
+              {uploadLoading ? "Uploading..." : loading ? "Upscaling..." : `Upscale to ${upscaleResolution.toUpperCase()}`}
             </GoldButton>
 
             {error && <div className="bg-red-950 border border-red-800 rounded-lg p-3 text-sm text-red-300 font-body">{error}</div>}

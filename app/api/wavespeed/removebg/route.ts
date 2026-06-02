@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callWavespeed } from "@/lib/wavespeed";
 
+// wavespeed-ai/image-background-remover — verified June 2026
 export async function POST(req: NextRequest) {
   try {
     const { imageUrl } = await req.json();
@@ -8,8 +9,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "imageUrl is required" }, { status: 400 });
     }
 
-    const result = await callWavespeed("birefnet/background-removal", {
-      image_url: imageUrl,
+    const result = await callWavespeed("wavespeed-ai/image-background-remover", {
+      image: imageUrl,
     });
 
     const requestId = result.data?.id || result.id;
