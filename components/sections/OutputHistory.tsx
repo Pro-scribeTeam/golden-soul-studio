@@ -98,14 +98,27 @@ export default function OutputHistory() {
     clearSelection();
   };
 
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = blob.type.includes("video") ? "mp4" : blob.type.includes("png") ? "png" : "jpg";
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `${filename}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      window.open(url, "_blank");
+    }
+  };
+
   const downloadSelected = () => {
     sortedItems
       .filter((i) => selected.has(i.id) && i.output_url)
       .forEach((item) => {
-        const a = document.createElement("a");
-        a.href = item.output_url!;
-        a.download = `golden-soul-${item.section}-${item.id}`;
-        a.click();
+        downloadFile(item.output_url!, `golden-soul-${item.section}-${item.id}`);
       });
   };
 
@@ -262,14 +275,12 @@ export default function OutputHistory() {
                 {/* Actions */}
                 <div className="flex gap-1 pt-1">
                   {item.output_url && (
-                    <a
-                      href={item.output_url}
-                      download
-                      onClick={(e) => e.stopPropagation()}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); downloadFile(item.output_url!, `golden-soul-${item.section}-${item.id}`); }}
                       className="flex-1 flex items-center justify-center py-1 bg-[#C9A84C22] rounded text-[#C9A84C] hover:bg-[#C9A84C33] transition-colors"
                     >
                       <Download size={10} />
-                    </a>
+                    </button>
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteItem(item.id); }}
@@ -330,13 +341,12 @@ export default function OutputHistory() {
               )}
               <div className="flex gap-2 pt-2">
                 {expanded.output_url && (
-                  <a
-                    href={expanded.output_url}
-                    download
+                  <button
+                    onClick={() => downloadFile(expanded.output_url!, `golden-soul-${expanded.section}-${expanded.id}`)}
                     className="flex items-center gap-2 px-4 py-2 bg-[#C9A84C] text-[#0A0A0F] rounded-lg text-xs font-body font-semibold hover:bg-[#D4B86A] transition-colors"
                   >
                     <Download size={12} /> Download
-                  </a>
+                  </button>
                 )}
                 <p className="text-xs text-[#F5F0E844] font-body self-center ml-auto">{formatDate(expanded.created_at)}</p>
               </div>

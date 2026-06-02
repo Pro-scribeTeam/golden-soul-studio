@@ -28,12 +28,21 @@ export function OutputCard({
 }: OutputCardProps) {
   const [showSettings, setShowSettings] = useState(false);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!outputUrl) return;
-    const a = document.createElement("a");
-    a.href = outputUrl;
-    a.download = `golden-soul-${section}-${Date.now()}`;
-    a.click();
+    try {
+      const res = await fetch(outputUrl);
+      const blob = await res.blob();
+      const ext = blob.type.includes("video") ? "mp4" : blob.type.includes("png") ? "png" : "jpg";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `golden-soul-${section}-${Date.now()}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(outputUrl, "_blank");
+    }
   };
 
   const handleShare = async () => {
