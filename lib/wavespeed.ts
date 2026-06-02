@@ -1,24 +1,24 @@
 const WAVESPEED_BASE = "https://api.wavespeed.ai";
 
-export async function callWavespeed(endpoint: string, body: Record<string, unknown>) {
+export async function callWavespeed(modelId: string, input: Record<string, unknown>) {
   const apiKey = process.env.WAVESPEED_API_KEY;
   if (!apiKey) throw new Error("WAVESPEED_API_KEY not configured");
 
-  const res = await fetch(`${WAVESPEED_BASE}${endpoint}`, {
+  const res = await fetch(`${WAVESPEED_BASE}/api/v1/${modelId}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(input),
   });
 
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     throw new Error(`WaveSpeed API error ${res.status}: ${text}`);
   }
 
-  return res.json();
+  return JSON.parse(text);
 }
 
 export async function pollStatus(requestId: string): Promise<{
@@ -30,18 +30,26 @@ export async function pollStatus(requestId: string): Promise<{
   const apiKey = process.env.WAVESPEED_API_KEY;
   if (!apiKey) throw new Error("WAVESPEED_API_KEY not configured");
 
-  const res = await fetch(`${WAVESPEED_BASE}/api/v1/results/${requestId}`, {
+  const res = await fetch(`${WAVESPEED_BASE}/api/v1/predictions/${requestId}/result`, {
     headers: {
       "Authorization": `Bearer ${apiKey}`,
     },
   });
 
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     throw new Error(`WaveSpeed status error ${res.status}: ${text}`);
   }
 
-  return res.json();
+  const json = JSON.parse(text);
+  // Normalize response shape
+  const data = json.data || json;
+  return {
+    status: data.status || "processing",
+    outputs: data.outputs || data.result?.outputs || [],
+    error: data.error,
+    progress: data.progress,
+  };
 }
 
 export const MODEL_IDS = {

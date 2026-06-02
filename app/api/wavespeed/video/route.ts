@@ -10,27 +10,24 @@ export async function POST(req: NextRequest) {
     }
 
     const qualityMap: Record<string, number> = {
-      Draft: 480,
+      Draft:    480,
       Standard: 720,
-      High: 1080,
-      Ultra: 1440,
-      MAX: 2160,
+      High:     1080,
+      Ultra:    1440,
+      MAX:      2160,
     };
 
-    const result = await callWavespeed(`/api/v1/predictions`, {
-      model: model || "wavespeed-ai/wan-v2.2-t2v-480p",
-      input: {
-        prompt,
-        duration: duration || 5,
-        resolution: qualityMap[quality as string] || 720,
-        aspect_ratio: aspectRatio || "16:9",
-      },
+    const modelId = model || "wavespeed-ai/wan-v2.2-t2v-480p";
+
+    const result = await callWavespeed(modelId, {
+      prompt,
+      duration:     Number(duration) || 5,
+      resolution:   qualityMap[quality as string] || 720,
+      aspect_ratio: aspectRatio || "16:9",
     });
 
-    return NextResponse.json({
-      requestId: result.data?.id || result.id,
-      status: "processing",
-    });
+    const requestId = result.data?.id || result.id;
+    return NextResponse.json({ requestId, status: "processing" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

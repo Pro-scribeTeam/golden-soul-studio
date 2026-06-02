@@ -7,6 +7,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
     const result = await pollStatus(id);
     return NextResponse.json(result);
   } catch (err) {
