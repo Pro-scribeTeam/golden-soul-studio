@@ -1,9 +1,18 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+let _client: SupabaseClient | null = null;
 
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+function getClient(): SupabaseClient {
+  if (!_client) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error("Supabase environment variables not configured");
+    }
+    _client = createClient(supabaseUrl, supabaseServiceKey);
+  }
+  return _client;
+}
 
 export interface StudioOutput {
   id?: string;
@@ -18,7 +27,7 @@ export interface StudioOutput {
 }
 
 export async function saveOutput(output: StudioOutput) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getClient()
     .from("studio_outputs")
     .insert({ ...output, user_id: output.user_id || "jeff_dixon" })
     .select()
@@ -29,7 +38,7 @@ export async function saveOutput(output: StudioOutput) {
 }
 
 export async function getOutputs(section?: string) {
-  let query = supabaseAdmin
+  let query = getClient()
     .from("studio_outputs")
     .select("*")
     .order("created_at", { ascending: false })
@@ -45,7 +54,7 @@ export async function getOutputs(section?: string) {
 }
 
 export async function deleteOutput(id: string) {
-  const { error } = await supabaseAdmin
+  const { error } = await getClient()
     .from("studio_outputs")
     .delete()
     .eq("id", id);
