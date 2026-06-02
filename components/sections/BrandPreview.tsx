@@ -109,137 +109,89 @@ export default function BrandPreview() {
     setTimeout(() => setShowSuccess(false), 4000);
   };
 
-  const renderPreviewCard = (p: BrandPreset) => (
+  // Preset-specific card themes
+  const getCardTheme = (p: BrandPreset) => {
+    switch (p.id) {
+      case "golden-soul":    return { bg: "#0A0A0F", accent: "#C9A84C", text: "#F5F0E8", sub: "#C9A84CAA", postBg: "#111118", gradient: "135deg, #C9A84C33, #0A0A0F" };
+      case "midnight-fedora":return { bg: "#0D0D14", accent: "#C9A84C", text: "#E8E3DB", sub: "#C9A84C88", postBg: "#0A0A10", gradient: "135deg, #C9A84C22, #0D0D14" };
+      case "ivory-gospel":   return { bg: "#FDFAF4", accent: "#D4B86A", text: "#2A2A2A", sub: "#2A2A2A99", postBg: "#F5F0E8", gradient: "135deg, #D4B86A22, #F5F0E8" };
+      case "fresno-heritage":return { bg: "#3A2A1A", accent: "#D4955A", text: "#EDE0CB", sub: "#D4955AAA", postBg: "#2E1F0F", gradient: "135deg, #D4955A33, #3A2A1A" };
+      case "soul-legend":    return { bg: "#2A1A0A", accent: "#B8953A", text: "#EDE0CB", sub: "#B8953AAA", postBg: "#1F1408", gradient: "135deg, #B8953A33, #2A1A0A" };
+      default:               return { bg: p.colors[1]?.hex || "#0A0A0F", accent: p.colors[0]?.hex || "#C9A84C", text: p.colors[2]?.hex || "#F5F0E8", sub: (p.colors[2]?.hex || "#F5F0E8") + "99", postBg: "#111118", gradient: `135deg, ${p.colors[0]?.hex}22, ${p.colors[1]?.hex}` };
+    }
+  };
+
+  const renderPreviewCard = (p: BrandPreset) => {
+    const theme = getCardTheme(p);
+    return (
     <div
       style={{
-        background: p.colors[1]?.hex || "#0A0A0F",
-        border: `1px solid ${p.colors[0]?.hex}44`,
+        background: theme.bg,
+        border: `1px solid ${theme.accent}44`,
         borderRadius: 12,
         overflow: "hidden",
       }}
     >
-      {/* Color palette */}
+      {/* Color palette swatches */}
       <div className="flex">
         {p.colors.map((c) => (
-          <div key={c.hex} className="flex-1 h-10" style={{ background: c.hex }} title={c.name} />
+          <div key={c.hex} className="flex-1 h-8" style={{ background: c.hex }} title={c.name} />
         ))}
       </div>
 
-      {/* Typography sample */}
+      {/* Typography + mockups */}
       <div className="p-5 space-y-3">
-        <h2
-          style={{
-            fontFamily: p.headingFont + ", serif",
-            color: p.colors[0]?.hex,
-            fontSize: 28,
-            fontWeight: 700,
-            lineHeight: 1.2,
-          }}
-        >
+        <h2 style={{ fontFamily: p.headingFont + ", serif", color: theme.accent, fontSize: 28, fontWeight: 700, lineHeight: 1.2 }}>
           Jeff M Dixon
         </h2>
-        <p style={{ fontFamily: p.headingFont + ", serif", color: p.colors[2]?.hex, fontSize: 14, fontStyle: "italic" }}>
+        <p style={{ fontFamily: p.headingFont + ", serif", color: theme.text, fontSize: 14, fontStyle: "italic" }}>
           &ldquo;Soul doesn&apos;t go out of style&rdquo;
         </p>
-        <p style={{ fontFamily: p.bodyFont + ", sans-serif", color: p.colors[2]?.hex + "AA", fontSize: 11, lineHeight: 1.6 }}>
-          Singer · Songwriter · Performer
-          <br />
-          Fresno, California
+        <p style={{ fontFamily: p.bodyFont + ", sans-serif", color: theme.sub, fontSize: 11, lineHeight: 1.6 }}>
+          Singer · Songwriter · Performer<br />Fresno, California
         </p>
 
-        {/* Simulated Instagram post */}
-        <div
-          style={{
-            background: p.colors[3]?.hex || "#111118",
-            border: `1px solid ${p.colors[0]?.hex}33`,
-            borderRadius: 8,
-            padding: "12px",
-            marginTop: 8,
-          }}
-        >
+        {/* Instagram post mockup */}
+        <div style={{ background: theme.postBg, border: `1px solid ${theme.accent}33`, borderRadius: 8, padding: "12px", marginTop: 8 }}>
           <div className="flex items-center gap-2 mb-2">
-            <div
-              style={{ width: 28, height: 28, borderRadius: "50%", background: p.colors[0]?.hex }}
-            />
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: theme.accent }} />
             <div>
-              <p style={{ fontFamily: p.bodyFont, fontSize: 11, color: p.colors[2]?.hex, fontWeight: 600 }}>
-                @jeffmdixon
-              </p>
-              <p style={{ fontFamily: p.bodyFont, fontSize: 9, color: p.colors[2]?.hex + "66" }}>
-                Just now
-              </p>
+              <p style={{ fontFamily: p.bodyFont, fontSize: 11, color: theme.text, fontWeight: 600 }}>@jeffmdixon</p>
+              <p style={{ fontFamily: p.bodyFont, fontSize: 9, color: theme.sub }}>Just now</p>
             </div>
           </div>
-          <div
-            style={{
-              background: `linear-gradient(135deg, ${p.colors[0]?.hex}22, ${p.colors[1]?.hex})`,
-              height: 80,
-              borderRadius: 6,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <span style={{ color: p.colors[0]?.hex, fontSize: 20 }}>🎩</span>
+          <div style={{ background: `linear-gradient(${theme.gradient})`, height: 90, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 4 }}>
+            <span style={{ color: theme.accent, fontSize: 24 }}>🎩</span>
+            <p style={{ fontFamily: p.headingFont + ", serif", color: theme.accent, fontSize: 11, fontWeight: 600 }}>Golden Soul</p>
           </div>
-          <p style={{ fontFamily: p.bodyFont, fontSize: 10, color: p.colors[2]?.hex + "CC", marginTop: 8 }}>
+          <p style={{ fontFamily: p.bodyFont, fontSize: 10, color: theme.sub, marginTop: 8 }}>
             New music dropping soon. Stay tuned. ✨
           </p>
         </div>
 
-        {/* YouTube thumbnail mockup */}
-        <div
-          style={{
-            background: `linear-gradient(to right, ${p.colors[1]?.hex}, ${p.colors[3]?.hex || p.colors[1]?.hex})`,
-            border: `1px solid ${p.colors[0]?.hex}33`,
-            borderRadius: 6,
-            padding: "10px 12px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
+        {/* Video thumbnail mockup */}
+        <div style={{ background: `linear-gradient(to right, ${theme.postBg}, ${theme.bg})`, border: `1px solid ${theme.accent}33`, borderRadius: 6, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <p style={{ fontFamily: p.headingFont + ", serif", color: p.colors[0]?.hex, fontSize: 13, fontWeight: 600 }}>
-              OFFICIAL MUSIC VIDEO
-            </p>
-            <p style={{ fontFamily: p.bodyFont, color: p.colors[2]?.hex, fontSize: 10 }}>Jeff M Dixon</p>
+            <p style={{ fontFamily: p.headingFont + ", serif", color: theme.accent, fontSize: 13, fontWeight: 700 }}>OFFICIAL MUSIC VIDEO</p>
+            <p style={{ fontFamily: p.bodyFont, color: theme.text, fontSize: 10 }}>Jeff M Dixon</p>
           </div>
-          <div
-            style={{
-              width: 24, height: 24, borderRadius: "50%",
-              background: p.colors[0]?.hex,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-          >
-            <span style={{ fontSize: 10, marginLeft: 2 }}>▶</span>
+          <div style={{ width: 26, height: 26, borderRadius: "50%", background: theme.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 10, color: "#0A0A0F", marginLeft: 2 }}>▶</span>
           </div>
         </div>
 
         {/* Logo lockup */}
         <div className="flex items-center gap-2 pt-1">
-          <div
-            style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: p.colors[0]?.hex,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 14,
-            }}
-          >
-            🎩
-          </div>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: theme.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🎩</div>
           <div>
-            <p style={{ fontFamily: p.headingFont + ", serif", color: p.colors[0]?.hex, fontSize: 14, fontWeight: 700, lineHeight: 1 }}>
-              Jeff M Dixon
-            </p>
-            <p style={{ fontFamily: p.bodyFont, color: p.colors[2]?.hex + "88", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              Official
-            </p>
+            <p style={{ fontFamily: p.headingFont + ", serif", color: theme.accent, fontSize: 14, fontWeight: 700, lineHeight: 1 }}>Jeff M Dixon</p>
+            <p style={{ fontFamily: p.bodyFont, color: theme.sub, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase" }}>Official</p>
           </div>
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">

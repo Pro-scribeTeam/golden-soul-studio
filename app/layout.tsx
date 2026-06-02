@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { MobileNav } from "@/components/layout/MobileNav";
 import { LayoutProvider } from "@/components/layout/LayoutProvider";
 import { MainContent } from "@/components/layout/MainContent";
 
@@ -21,6 +22,7 @@ export default function RootLayout({
           <div className="flex h-full">
             <Sidebar />
             <MainContent>{children}</MainContent>
+            <MobileNav />
           </div>
         </LayoutProvider>
       </body>

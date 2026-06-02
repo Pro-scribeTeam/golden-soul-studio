@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { GoldButton } from "@/components/ui/GoldButton";
 import { GoldSlider } from "@/components/ui/GoldSlider";
 import { GoldDropdown } from "@/components/ui/GoldDropdown";
 import { LoadingRing } from "@/components/ui/LoadingRing";
 import { OutputCard } from "@/components/ui/OutputCard";
-import { Upload, X, Link } from "lucide-react";
+import { Upload, X, Link, Video } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -208,6 +209,12 @@ async function pollResult(requestId: string, onProgress: (p: number) => void): P
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ImageGeneration() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const stored = localStorage.getItem("gss_image_prompt");
+    if (stored) { setPrompt(stored); localStorage.removeItem("gss_image_prompt"); }
+  }, []);
   const [mode, setMode] = useState<Mode>("generate");
 
   // Generate state
@@ -236,6 +243,7 @@ export default function ImageGeneration() {
   const [progress, setProgress]   = useState(0);
   const [results, setResults]     = useState<string[]>([]);
   const [error, setError]         = useState<string | null>(null);
+  const [toastMsg, setToastMsg]   = useState<string | null>(null);
 
   const uploadFile = async (file: File) => {
     setUploadLoading(true);
@@ -319,6 +327,17 @@ export default function ImageGeneration() {
     setMode("edit");
   };
 
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  const sendToVideo = (url: string) => {
+    localStorage.setItem("gss_video_image", url);
+    showToast("Image loaded — navigating to Video Generation...");
+    setTimeout(() => router.push("/video"), 800);
+  };
+
   const currentSection = MODES.find((m) => m.id === mode)!;
 
   return (
@@ -328,6 +347,14 @@ export default function ImageGeneration() {
         <h1 className="font-heading text-4xl font-bold text-[#C9A84C]">Image Generation</h1>
         <p className="text-[#F5F0E877] text-sm font-body mt-1">
           Generate, edit, upscale, and remove backgrounds via WaveSpeed AI
+        </p>
+      </div>
+
+      {/* Pro Tip Banner */}
+      <div className="flex items-start gap-3 bg-[#C9A84C08] border border-[#C9A84C22] rounded-xl px-4 py-3">
+        <span className="text-base flex-shrink-0">✨</span>
+        <p className="text-xs font-body text-[#F5F0E8AA] leading-relaxed">
+          <span className="text-[#C9A84C] font-semibold">Pro Tip:</span> Generate your image first, then send it to Video Generation to animate it with any camera movement. Use the <span className="text-[#C9A84C]">🎬 Send to Video</span> button that appears on your results.
         </p>
       </div>
 
@@ -569,31 +596,49 @@ export default function ImageGeneration() {
       {/* Results */}
       {results.length > 0 && !loading && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-heading text-2xl text-[#C9A84C]">{currentSection.label} Results</h2>
-            {mode === "generate" && results.length > 0 && (
-              <button
-                onClick={() => sendToEdit(results[0])}
-                className="px-3 py-1.5 bg-[#C9A84C11] border border-[#C9A84C33] rounded-lg text-xs text-[#C9A84C] hover:bg-[#C9A84C22] transition-colors font-body"
-              >
-                Edit this image →
-              </button>
-            )}
-          </div>
+          <h2 className="font-heading text-2xl text-[#C9A84C] mb-4">{currentSection.label} Results</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {results.map((url, i) => (
-              <OutputCard
-                key={i}
-                outputUrl={url}
-                model={mode === "generate" ? (IMAGE_MODELS.find((m) => m.value === model)?.label || model) : mode}
-                section={currentSection.label}
-                prompt={mode === "generate" ? prompt : mode === "edit" ? editPrompt : ""}
-                settings={mode === "generate" ? { styleIntensity: `${styleIntensity}%`, lighting, resolution } : {}}
-                onRegenerate={mode === "generate" ? generate : mode === "edit" ? editImage : mode === "upscale" ? upscaleImage : removeBg}
-                isVideo={false}
-              />
+              <div key={i} className="space-y-2">
+                <OutputCard
+                  outputUrl={url}
+                  model={mode === "generate" ? (IMAGE_MODELS.find((m) => m.value === model)?.label || model) : mode}
+                  section={currentSection.label}
+                  prompt={mode === "generate" ? prompt : mode === "edit" ? editPrompt : ""}
+                  settings={mode === "generate" ? { styleIntensity: `${styleIntensity}%`, lighting, resolution } : {}}
+                  onRegenerate={mode === "generate" ? generate : mode === "edit" ? editImage : mode === "upscale" ? upscaleImage : removeBg}
+                  isVideo={false}
+                />
+                {/* Action buttons */}
+                <div className="flex gap-2">
+                  {mode === "generate" && (
+                    <>
+                      <button
+                        onClick={() => sendToVideo(url)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-[#C9A84C] text-[#0A0A0F] rounded-lg text-xs font-body font-bold hover:bg-[#D4B86A] transition-colors"
+                      >
+                        <Video size={12} /> Send to Video Generation
+                      </button>
+                      <button
+                        onClick={() => sendToEdit(url)}
+                        className="px-3 py-2 bg-[#C9A84C11] border border-[#C9A84C33] rounded-lg text-xs text-[#C9A84C] hover:bg-[#C9A84C22] transition-colors font-body"
+                      >
+                        Edit →
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toastMsg && (
+        <div className="fixed bottom-24 md:bottom-6 right-6 z-50 bg-[#111118] border border-[#C9A84C] rounded-xl px-5 py-3 shadow-[0_0_30px_#C9A84C44] flex items-center gap-3 animate-slide-up">
+          <Video size={14} className="text-[#C9A84C]" />
+          <p className="text-sm font-body text-[#F5F0E8]">{toastMsg}</p>
         </div>
       )}
     </div>
