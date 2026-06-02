@@ -1,10 +1,11 @@
 const WAVESPEED_BASE = "https://api.wavespeed.ai";
+const API_VERSION = "v3";
 
 export async function callWavespeed(modelId: string, input: Record<string, unknown>) {
   const apiKey = process.env.WAVESPEED_API_KEY;
   if (!apiKey) throw new Error("WAVESPEED_API_KEY not configured");
 
-  const res = await fetch(`${WAVESPEED_BASE}/api/v1/${modelId}`, {
+  const res = await fetch(`${WAVESPEED_BASE}/api/${API_VERSION}/${modelId}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -30,70 +31,48 @@ export async function pollStatus(requestId: string): Promise<{
   const apiKey = process.env.WAVESPEED_API_KEY;
   if (!apiKey) throw new Error("WAVESPEED_API_KEY not configured");
 
-  const res = await fetch(`${WAVESPEED_BASE}/api/v1/predictions/${requestId}/result`, {
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-    },
-  });
+  const res = await fetch(
+    `${WAVESPEED_BASE}/api/${API_VERSION}/predictions/${requestId}/result`,
+    {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+    }
+  );
 
   const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`WaveSpeed status error ${res.status}: ${text}`);
-  }
+  if (!res.ok) throw new Error(`WaveSpeed status error ${res.status}: ${text}`);
 
   const json = JSON.parse(text);
-  // Normalize response shape
   const data = json.data || json;
+
   return {
-    status: data.status || "processing",
-    outputs: data.outputs || data.result?.outputs || [],
-    error: data.error,
+    status:  data.status || "processing",
+    outputs: data.outputs || [],
+    error:   data.error,
     progress: data.progress,
   };
 }
 
+// Verified model IDs from WaveSpeed API v3 (June 2026)
 export const MODEL_IDS = {
-  // Video
-  "Kling 3.0": "kwaivgi/kling-v3",
-  "Sora 2": "minimax/video-01",
-  "Seedance 2.0": "bytedance/seedance-v1-lite",
-  "Veo 3.1": "google/veo-3",
-  "LTX Video 2.3": "lightricks/ltx-video-0.9.7",
-  "Runway Gen-4": "runwayml/gen4-turbo",
-  "Wan 2.7": "wavespeed-ai/wan-v2.7-t2v-720p",
-  "Wan 2.2": "wavespeed-ai/wan-v2.2-t2v-480p",
   // Image
-  "Nano Banana Pro": "google/nano-banana-pro",
-  "Nano Banana 2": "google/nano-banana-2",
-  "FLUX.2": "wavespeed-ai/flux-dev",
-  "Seedream 5": "bytedance/seedream-5",
-  "Seedream 4.5": "bytedance/seedream-4-5",
-  "HunyuanImage 3.0": "tencent/hunyuan-image-3-0",
-  "GPT Image 2": "openai/gpt-image-2",
-  "Stable Diffusion 3.5": "stability/stable-diffusion-3-5",
+  "Nano Banana Pro":      "google/nano-banana-pro/edit",
+  "Nano Banana 2":        "google/nano-banana-2/edit",
+  "FLUX.2 Klein":         "wavespeed-ai/flux-2-klein-9b/text-to-image",
+  "FLUX Dev":             "wavespeed-ai/flux-dev",
+  "FLUX Kontext Max":     "wavespeed-ai/flux-kontext-max/text-to-image",
+  "FLUX Kontext Pro":     "wavespeed-ai/flux-kontext-pro/text-to-image",
+  "Seedream 5":           "bytedance/seedream-v5.0-lite/edit",
+  "Seedream 4.5":         "bytedance/seedream-v4.5/edit",
+  "GPT Image 2":          "openai/gpt-image-2/text-to-image",
+  // Video
+  "Seedance 2.0":         "bytedance/seedance-2.0/text-to-video",
+  "Seedance 2.0 Fast":    "bytedance/seedance-2.0-fast/text-to-video",
+  "Kling 3.0 Std":        "kwaivgi/kling-v3.0-std/image-to-video",
+  "Wan 2.7":              "alibaba/wan-2.7/image-to-video",
+  // Lip Sync / Avatar
+  "AI Music Video":       "wavespeed-ai/music-video-generator",
+  "InfiniteTalk":         "wavespeed-ai/infinitetalk",
+  "InfiniteTalk Video":   "wavespeed-ai/infinitetalk/video-to-video",
   // Motion
-  "SteadyDancer": "wavespeed-ai/steady-dancer",
-  "DreamActor V2": "bytedance/dreamactor-v2",
-  "Kling 2.6 Pro Motion": "kwaivgi/kling-v2.6-pro/motion-control",
-  "Kling 2.6 Standard Motion": "kwaivgi/kling-v2.6-std/motion-control",
-  "SCAIL": "wavespeed-ai/scail",
-  // Lip Sync
-  "AI Music Video Generator": "wavespeed-ai/ai-music-video-generator",
-  "Sync LipSync-3": "sync/lipsync-3",
-  "Sync LipSync-2-Pro": "sync/lipsync-2-pro",
-  "Sync LipSync-1.9.0": "sync/lipsync-1-9-0",
-  "Sync LipSync-2": "sync/lipsync-2",
-  "Kling LipSync": "kwaivgi/kling-lipsync",
-  "ByteDance LipSync": "bytedance/lipsync",
-  "InfiniteTalk": "wavespeed-ai/infinitetalk",
-  "InfiniteTalk Multi": "wavespeed-ai/infinitetalk-multi",
-  "PixVerse LipSync": "pixverse/lipsync",
+  "Kling Motion Pro":     "kwaivgi/kling-v2.6-pro/motion-control",
 } as const;
-
-export const MODEL_COSTS: Record<string, string> = {
-  "SteadyDancer": "~$0.20/run",
-  "DreamActor V2": "~$0.05/run",
-  "Sync LipSync-3": "$0.134/sec",
-  "Kling 3.0": "~$0.45/run",
-  "Sora 2": "~$0.50/run",
-};
