@@ -1,26 +1,190 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,600&family=Montserrat:wght@300;400;500;600;700&display=swap");
+
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-gold: #C9A84C;
+  --color-gold-light: #D4B86A;
+  --color-gold-dim: #C9A84C22;
+  --color-gold-border: #C9A84C33;
+  --color-bg: #0A0A0F;
+  --color-card: #111118;
+  --color-ivory: #F5F0E8;
+  --color-mint: #6BBFB5;
+  --color-surface: #16161F;
+  --color-muted: #3A3A4A;
+  --font-heading: "Cormorant Garamond", serif;
+  --font-body: "Montserrat", sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  height: 100%;
+  background-color: #0A0A0F;
+  color: #F5F0E8;
+  font-family: "Montserrat", sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Gold slider styles */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: #3A3A4A;
+  cursor: pointer;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #C9A84C;
+  cursor: pointer;
+  border: 2px solid #0A0A0F;
+  box-shadow: 0 0 6px #C9A84C66;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 10px #C9A84C99;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #C9A84C;
+  cursor: pointer;
+  border: 2px solid #0A0A0F;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #111118;
+}
+::-webkit-scrollbar-thumb {
+  background: #C9A84C44;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C9A84C88;
+}
+
+/* Select */
+select {
+  background-color: #111118;
+  color: #F5F0E8;
+  border: 1px solid #C9A84C33;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+select:focus {
+  border-color: #C9A84C;
+}
+
+select option {
+  background-color: #111118;
+  color: #F5F0E8;
+}
+
+/* Textarea */
+textarea, input[type="text"], input[type="email"], input[type="url"] {
+  background-color: #111118;
+  color: #F5F0E8;
+  border: 1px solid #C9A84C33;
+  border-radius: 6px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+textarea:focus, input[type="text"]:focus, input[type="email"]:focus {
+  border-color: #C9A84C;
+}
+
+/* Animations */
+@keyframes spin-gold {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes progress-bar {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+.animate-spin-gold {
+  animation: spin-gold 1s linear infinite;
+}
+
+.animate-pulse-gold {
+  animation: pulse-gold 2s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Button active pulse */
+@keyframes btn-pulse {
+  0% { box-shadow: 0 0 0 0 #C9A84C66; }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.btn-pulse:active {
+  animation: btn-pulse 0.4s ease-out;
+}
+
+/* Gold progress bar */
+.progress-gold {
+  background: linear-gradient(90deg, #C9A84C, #D4B86A);
+  height: 3px;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Heading font utility */
+.font-heading {
+  font-family: "Cormorant Garamond", serif;
+}
+
+.font-body {
+  font-family: "Montserrat", sans-serif;
 }
