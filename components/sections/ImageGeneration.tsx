@@ -254,7 +254,9 @@ export default function ImageGeneration() {
       const form = new FormData();
       form.append("file", file);
       const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
+      const text = await res.text();
+      let data: { url?: string; error?: string };
+      try { data = JSON.parse(text); } catch { throw new Error(res.ok ? "Upload failed" : `Upload error (${res.status}): ${text.slice(0, 120)}`); }
       if (data.error) throw new Error(data.error);
       setImageUrl(data.url);
     } catch (e) {

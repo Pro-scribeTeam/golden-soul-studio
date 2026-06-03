@@ -206,9 +206,11 @@ export default function VideoGeneration() {
       const form = new FormData();
       form.append("file", file);
       const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
+      const text = await res.text();
+      let data: { url?: string; error?: string };
+      try { data = JSON.parse(text); } catch { throw new Error(res.ok ? "Upload failed" : `Upload error (${res.status}): ${text.slice(0, 120)}`); }
       if (data.error) throw new Error(data.error);
-      setImageUrl(data.url);
+      setImageUrl(data.url!);
       setModel("kling-i2v");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
