@@ -1,295 +1,553 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
-import { GoldButton } from "@/components/ui/GoldButton";
-import { GoldDropdown } from "@/components/ui/GoldDropdown";
-import { Copy, Check, Image, Video } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
-interface Agent {
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface ChatMessage {
   id: string;
-  emoji: string;
-  name: string;
-  title: string;
-  description: string;
-  systemPrompt: string;
+  role: "user" | "assistant";
+  content: string;
+  image_urls: string[];
+  created_at?: string;
 }
 
-const AGENTS: Agent[] = [
-  {
-    id: "jordan-reed",
-    emoji: "🎨",
-    name: "Jordan Reed",
-    title: "Creative Director",
-    description: "Visual identity, art direction, campaign concepting",
-    systemPrompt: `You are Jordan Reed, Creative Director for Jeff M Dixon's record label. You are a world-class creative director specializing in visual identity, art direction, and campaign concepting for R&B artists. Jeff M Dixon's brand is Golden Soul — warm amber, deep black, ivory, mint. His signature is a spinning fedora. His tagline: Soul doesn't go out of style. Give expert creative direction, write precise AI generation prompts, or develop full creative briefs. Always think cinematically. Always honor the Golden Soul aesthetic.`,
-  },
-  {
-    id: "nova-vega",
-    emoji: "🎬",
-    name: "Nova Vega",
-    title: "Video Producer",
-    description: "Music video direction, shot lists, production briefs",
-    systemPrompt: `You are Nova Vega, Video Producer for Jeff M Dixon. You specialize in music video direction, shot lists, and production briefs for R&B artists. Jeff M Dixon's visual world: golden hour lighting, fedora hat as brand signature, cinematic film aesthetic, authentic soul. His catalog: Stay With Me, Eyes of An Angel, My Baby. Give expert video production direction with specific shot descriptions, camera movements, and production notes.`,
-  },
-  {
-    id: "jade-monroe",
-    emoji: "📱",
-    name: "Jade Monroe",
-    title: "Social Media Manager",
-    description: "Platform-specific hooks, captions, content strategy",
-    systemPrompt: `You are Jade Monroe, Social Media Manager for Jeff M Dixon. You understand TikTok, Instagram, and YouTube algorithms deeply. Jeff M Dixon is an established independent R&B artist relaunching — Fresno born, #1 hit at 18, film soundtrack credits, never sold out. His audience: soul nostalgics 35-55 and authenticity seekers 25-35. Write platform-specific hooks, captions, and content strategies that match his Golden Soul brand voice — authentic, earned, never try-hard.`,
-  },
-  {
-    id: "aaliyah-stone",
-    emoji: "✍️",
-    name: "Aaliyah Stone",
-    title: "Content Strategist",
-    description: "Content calendars, editorial planning, content pillars",
-    systemPrompt: `You are Aaliyah Stone, Content Strategist for Jeff M Dixon. You build content calendars, editorial plans, and content pillar strategies for R&B artists. Jeff's four content pillars: The Music, The Man, The Craft, The Community. His relaunch strategy centers on his authentic story — church choir roots, Fresno heritage, #1 independent hit, film soundtrack producer, decades of refusing bad deals. Build strategic content plans that serve his brand.`,
-  },
-  {
-    id: "cole-watts",
-    emoji: "✏️",
-    name: "Cole Watts",
-    title: "Copywriter",
-    description: "Captions, bios, ad copy, email subject lines",
-    systemPrompt: `You are Cole Watts, Copywriter for Jeff M Dixon. You write conversion copy, social captions, artist bios, ad copy and email sequences. Jeff M Dixon's voice: authentic, earned, never try-hard. His tagline: Soul doesn't go out of style. His story: #1 hit at 18, Eyes of An Angel, Me and Mrs. Jones soundtrack, independent for life. Write copy that sounds like Jeff — real, soulful, dignified. Never generic R&B marketing speak.`,
-  },
-];
+interface ToolCall {
+  name: string;
+  indicator: string;
+}
 
-const OUTPUT_TYPES = [
-  { value: "image-prompt",  label: "🖼️ Image Prompt" },
-  { value: "video-prompt",  label: "🎬 Video Prompt" },
-  { value: "brief",         label: "📋 Full Creative Brief" },
-  { value: "shot-list",     label: "🎬 Shot List" },
-  { value: "caption",       label: "📱 Social Caption" },
-  { value: "calendar",      label: "📅 Content Calendar" },
-  { value: "hook",          label: "🪝 Hook / Opening Line" },
-  { value: "email-subject", label: "📧 Email Subject Line" },
-  { value: "bio",           label: "👤 Artist Bio" },
-  { value: "ad-copy",       label: "💰 Ad Copy" },
-];
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function newSessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
-const FOR_ARTIST_OPTIONS = [
-  { value: "jeff-dixon", label: "Jeff M Dixon" },
-  { value: "general",    label: "General / Label" },
-];
+function getSessionId(): string {
+  if (typeof window === "undefined") return "default";
+  let id = localStorage.getItem("gss_agent_session");
+  if (!id) {
+    id = newSessionId();
+    localStorage.setItem("gss_agent_session", id);
+  }
+  return id;
+}
 
-export default function AgentStudio() {
-  const router = useRouter();
-  const [agentId, setAgentId]     = useState("jordan-reed");
-  const [brief, setBrief]         = useState("");
-  const [forArtist, setForArtist] = useState("jeff-dixon");
-  const [outputType, setOutputType] = useState("image-prompt");
-  const [loading, setLoading]     = useState(false);
-  const [output, setOutput]       = useState("");
-  const [error, setError]         = useState<string | null>(null);
-  const [copied, setCopied]       = useState(false);
-  const [toastMsg, setToastMsg]   = useState<string | null>(null);
+// ── Spinner ───────────────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <div
+      className="w-4 h-4 border-2 rounded-full animate-spin"
+      style={{ borderColor: "#C9A84C22", borderTopColor: "#C9A84C" }}
+    />
+  );
+}
 
-  const selectedAgent = AGENTS.find((a) => a.id === agentId)!;
+// ── Typing indicator ──────────────────────────────────────────────────────────
+function TypingIndicator({ label }: { label: string }) {
+  return (
+    <div className="flex items-start gap-3 mb-4">
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+        style={{ background: "#C9A84C22", color: "#C9A84C" }}
+      >
+        J
+      </div>
+      <div
+        className="rounded-2xl rounded-tl-none px-4 py-3 text-sm flex items-center gap-2"
+        style={{ background: "#16161F", color: "#F5F0E8AA" }}
+      >
+        <Spinner />
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
 
-  const getDirection = async () => {
-    if (!brief.trim()) { setError("Please describe what you need."); return; }
+// ── Message bubble ────────────────────────────────────────────────────────────
+function MessageBubble({
+  msg,
+  onImageClick,
+}: {
+  msg: ChatMessage;
+  onImageClick: (url: string) => void;
+}) {
+  const isUser = msg.role === "user";
+
+  return (
+    <div className={`flex items-start gap-3 mb-5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+      {/* Avatar */}
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+        style={
+          isUser
+            ? { background: "#C9A84C", color: "#0A0A0F" }
+            : { background: "#C9A84C22", color: "#C9A84C" }
+        }
+      >
+        {isUser ? "J" : "JR"}
+      </div>
+
+      {/* Bubble */}
+      <div className={`max-w-[78%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-2`}>
+        <div
+          className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
+          style={
+            isUser
+              ? {
+                  background: "#C9A84C22",
+                  color: "#F5F0E8",
+                  borderRadius: "18px 4px 18px 18px",
+                  border: "1px solid #C9A84C44",
+                }
+              : {
+                  background: "#16161F",
+                  color: "#F5F0E8CC",
+                  borderRadius: "4px 18px 18px 18px",
+                  border: "1px solid #ffffff0d",
+                }
+          }
+        >
+          {msg.content}
+        </div>
+
+        {/* Inline images */}
+        {msg.image_urls && msg.image_urls.length > 0 && (
+          <div className="flex flex-col gap-2 w-full">
+            {msg.image_urls.map((url, i) => {
+              const isVideo = /\.(mp4|webm|mov)/i.test(url);
+              return isVideo ? (
+                <video
+                  key={i}
+                  src={url}
+                  controls
+                  className="rounded-xl w-full max-w-md cursor-pointer"
+                  style={{ border: "1px solid #C9A84C22" }}
+                />
+              ) : (
+                <img
+                  key={i}
+                  src={url}
+                  alt="Generated output"
+                  className="rounded-xl w-full max-w-md cursor-pointer hover:opacity-90 transition-opacity"
+                  style={{ border: "1px solid #C9A84C22" }}
+                  onClick={() => onImageClick(url)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.92)" }}
+      onClick={onClose}
+    >
+      <img
+        src={url}
+        alt="Full size"
+        className="max-w-full max-h-full rounded-2xl object-contain"
+        style={{ boxShadow: "0 0 60px #C9A84C33" }}
+        onClick={(e) => e.stopPropagation()}
+      />
+      <button
+        onClick={onClose}
+        className="absolute top-5 right-5 w-10 h-10 rounded-full flex items-center justify-center text-lg"
+        style={{ background: "#1a1a22", color: "#F5F0E8", border: "1px solid #C9A84C33" }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+function ImportModal({ sessionId, onClose, onImported }: { sessionId: string; onClose: () => void; onImported: () => void }) {
+  const [json, setJson] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleImport = async () => {
+    setError(null);
+    let parsed;
+    try { parsed = JSON.parse(json); } catch { setError("Invalid JSON"); return; }
+    if (!Array.isArray(parsed)) { setError("Expected a JSON array of {role, content} objects"); return; }
 
     setLoading(true);
-    setError(null);
-    setOutput("");
-
-    const outputLabel = OUTPUT_TYPES.find((o) => o.value === outputType)?.label || outputType;
-    const artistLabel = forArtist === "jeff-dixon"
-      ? "Jeff M Dixon, Black male R&B artist, late 30s, Fresno California, signature black fedora, gold brand aesthetic, Golden Soul brand"
-      : "the artist";
-
-    const userMessage = `Brief: ${brief}
-Output type needed: ${outputLabel}
-Artist: ${artistLabel}
-${outputType === "calendar"    ? "Provide a 4-week content calendar." : ""}
-${outputType === "shot-list"   ? "Include shot number, description, camera movement, and lighting for each shot." : ""}
-${outputType === "brief"       ? "Include overview, objectives, creative direction, deliverables, and timeline." : ""}
-${outputType === "image-prompt"? "Write a detailed, precise AI image generation prompt optimized for photorealistic results." : ""}
-${outputType === "video-prompt"? "Write a detailed AI video generation prompt with camera movement, lighting, and motion instructions." : ""}
-
-Be specific, actionable, and true to the Golden Soul brand.`;
-
     try {
-      const res = await fetch("/api/agent/direction", {
+      const res = await fetch("/api/agent/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId, systemPrompt: selectedAgent.systemPrompt, userMessage }),
+        body: JSON.stringify({ session_id: sessionId, messages: parsed }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
-      setOutput(data.content || "");
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      onImported();
+      onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Import failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(output);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3000);
-  };
-
-  const sendToImagePrompt = () => {
-    localStorage.setItem("gss_image_prompt", output);
-    showToast("Prompt sent to Image Generation!");
-    setTimeout(() => router.push("/image"), 800);
-  };
-
-  const sendToVideoPrompt = () => {
-    localStorage.setItem("gss_video_prompt", output);
-    showToast("Prompt sent to Video Generation!");
-    setTimeout(() => router.push("/video"), 800);
-  };
-
-  const isImagePrompt = outputType === "image-prompt";
-  const isVideoPrompt = outputType === "video-prompt" || outputType === "shot-list";
-
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-8">
-      <div>
-        <h1 className="font-heading text-4xl font-bold text-[#C9A84C]">Agent Studio</h1>
-        <p className="text-[#F5F0E877] text-sm font-body mt-1 max-w-2xl">
-          Get expert creative direction from your Marketing HQ agents. Select an agent, describe what you need,
-          and receive precision prompts or briefs ready to use.
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.85)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl p-6 space-y-4"
+        style={{ background: "#111118", border: "1px solid #C9A84C33" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-semibold" style={{ color: "#C9A84C", fontFamily: "'Cormorant Garamond', serif" }}>
+          Import Conversation
+        </h2>
+        <p className="text-xs" style={{ color: "#F5F0E877" }}>
+          Paste a JSON array of messages: <code className="text-xs" style={{ color: "#6BBFB5" }}>{"[{\"role\":\"user\",\"content\":\"...\"}]"}</code>
         </p>
-      </div>
-
-      {/* Agent cards */}
-      <div className="space-y-2">
-        <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Select Agent</label>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {AGENTS.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => setAgentId(agent.id)}
-              className={`text-left p-4 rounded-xl border transition-all duration-150 ${
-                agentId === agent.id
-                  ? "border-[#C9A84C] bg-[#C9A84C0D]"
-                  : "border-[#C9A84C22] hover:border-[#C9A84C44] bg-[#111118]"
-              }`}
-            >
-              <p className="text-2xl mb-1">{agent.emoji}</p>
-              <p className={`text-sm font-body font-semibold ${agentId === agent.id ? "text-[#C9A84C]" : "text-[#F5F0E8]"}`}>{agent.name}</p>
-              <p className="text-xs text-[#C9A84C88] font-body">{agent.title}</p>
-              <p className="text-xs text-[#F5F0E855] mt-1">{agent.description}</p>
-            </button>
-          ))}
+        <textarea
+          value={json}
+          onChange={(e) => setJson(e.target.value)}
+          rows={8}
+          placeholder='[{"role":"user","content":"..."}, {"role":"assistant","content":"..."}]'
+          className="w-full px-3 py-2 text-xs font-mono resize-none rounded-lg"
+          style={{ background: "#0A0A0F", border: "1px solid #C9A84C22", color: "#F5F0E8", outline: "none" }}
+        />
+        {error && <p className="text-xs" style={{ color: "#f87171" }}>{error}</p>}
+        <div className="flex gap-3">
+          <button
+            onClick={handleImport}
+            disabled={loading || !json.trim()}
+            className="flex-1 py-2 rounded-xl text-sm font-semibold transition-opacity"
+            style={{ background: "#C9A84C", color: "#0A0A0F", opacity: loading || !json.trim() ? 0.5 : 1 }}
+          >
+            {loading ? "Importing..." : "Import"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-sm"
+            style={{ background: "#16161F", color: "#F5F0E8AA", border: "1px solid #ffffff11" }}
+          >
+            Cancel
+          </button>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-6">
-          <div className="space-y-1.5">
-            <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Brief for {selectedAgent.name}</label>
-            <textarea
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              placeholder="Describe what you need created..."
-              rows={6}
-              className="w-full px-4 py-3 resize-none"
-            />
+// ── Main component ────────────────────────────────────────────────────────────
+export default function AgentStudio() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [sessionId, setSessionId] = useState("default");
+  const [loading, setLoading] = useState(false);
+  const [toolIndicator, setToolIndicator] = useState<string>("Jordan is thinking...");
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Lock main scroll so chat manages its own ────────────────────────────────
+  useEffect(() => {
+    const main = document.querySelector("main") as HTMLElement | null;
+    if (main) {
+      main.style.overflow = "hidden";
+      return () => { main.style.overflow = ""; };
+    }
+  }, []);
+
+  // ── Load session and history ────────────────────────────────────────────────
+  useEffect(() => {
+    const sid = getSessionId();
+    setSessionId(sid);
+    loadHistory(sid);
+  }, []);
+
+  const loadHistory = useCallback(async (sid: string) => {
+    try {
+      const res = await fetch(`/api/agent/history?session_id=${encodeURIComponent(sid)}&limit=50`);
+      const data = await res.json();
+      if (data.messages) {
+        setMessages(data.messages.map((m: ChatMessage) => ({
+          ...m,
+          image_urls: m.image_urls || [],
+        })));
+      }
+    } catch {
+      // silent — history is not critical
+    } finally {
+      setHistoryLoaded(true);
+    }
+  }, []);
+
+  // ── Scroll to bottom ────────────────────────────────────────────────────────
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // ── Send message ────────────────────────────────────────────────────────────
+  const send = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    const userMsg: ChatMessage = {
+      id: `local-${Date.now()}`,
+      role: "user",
+      content: text,
+      image_urls: [],
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setLoading(true);
+    setError(null);
+    setToolIndicator("Jordan is thinking...");
+
+    // Resize textarea back
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+
+    try {
+      const res = await fetch("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, session_id: sessionId }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Request failed");
+
+      // Update indicator for any tool calls
+      if (data.tool_calls && data.tool_calls.length > 0) {
+        const lastTool = data.tool_calls[data.tool_calls.length - 1] as ToolCall;
+        setToolIndicator(lastTool.indicator);
+      }
+
+      const assistantMsg: ChatMessage = {
+        id: `resp-${Date.now()}`,
+        role: "assistant",
+        content: data.content || "",
+        image_urls: data.images || [],
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+      setInput(text);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── New session ─────────────────────────────────────────────────────────────
+  const newSession = () => {
+    const sid = newSessionId();
+    localStorage.setItem("gss_agent_session", sid);
+    setSessionId(sid);
+    setMessages([]);
+    setHistoryLoaded(true);
+  };
+
+  // ── Textarea auto-resize + Enter to send ────────────────────────────────────
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = "auto";
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+  };
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  return (
+    <div
+      className="flex flex-col"
+      style={{ height: "100vh", background: "#0A0A0F" }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-3 flex-shrink-0"
+        style={{ borderBottom: "1px solid #C9A84C1A", background: "#0A0A0F" }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold"
+            style={{ background: "linear-gradient(135deg, #C9A84C, #8B6914)", color: "#0A0A0F" }}
+          >
+            JR
           </div>
-          <GoldDropdown label="For Artist" value={forArtist} options={FOR_ARTIST_OPTIONS} onChange={setForArtist} />
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "#C9A84C", fontFamily: "'Cormorant Garamond', serif", fontSize: "16px" }}>
+              Jordan Reed
+            </p>
+            <p className="text-xs" style={{ color: "#F5F0E855" }}>Creative Director · Golden Soul Studio</p>
+          </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Output Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              {OUTPUT_TYPES.map((type) => (
-                <button
-                  key={type.value}
-                  onClick={() => setOutputType(type.value)}
-                  className={`px-3 py-2 rounded-lg text-xs font-body transition-all border text-left ${
-                    outputType === type.value
-                      ? "bg-[#C9A84C] text-[#0A0A0F] border-[#C9A84C] font-semibold"
-                      : "bg-[#111118] border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
-                  }`}
-                >
-                  {type.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <GoldButton size="lg" onClick={getDirection} loading={loading} disabled={loading} className="w-full">
-            {loading ? "Getting Direction..." : "🤖 Get Direction"}
-          </GoldButton>
-
-          {error && <div className="bg-red-950 border border-red-800 rounded-lg p-3 text-sm text-red-300 font-body">{error}</div>}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="px-3 py-1.5 rounded-lg text-xs transition-all"
+            style={{ background: "#16161F", color: "#F5F0E877", border: "1px solid #ffffff11" }}
+          >
+            Import
+          </button>
+          <button
+            onClick={newSession}
+            className="px-3 py-1.5 rounded-lg text-xs transition-all"
+            style={{ background: "#16161F", color: "#F5F0E877", border: "1px solid #ffffff11" }}
+          >
+            New Session
+          </button>
         </div>
       </div>
 
-      {/* Output */}
-      {(output || loading) && (
-        <div className="bg-[#111118] border border-[#C9A84C22] rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">{selectedAgent.emoji}</span>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-5" style={{ scrollbarColor: "#C9A84C22 transparent" }}>
+        <div className="max-w-3xl mx-auto">
+          {/* Welcome state */}
+          {historyLoaded && messages.length === 0 && !loading && (
+            <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold"
+                style={{ background: "linear-gradient(135deg, #C9A84C22, #C9A84C44)", border: "1px solid #C9A84C33" }}
+              >
+                🎨
+              </div>
               <div>
-                <p className="text-sm font-body font-semibold text-[#C9A84C]">{selectedAgent.name}</p>
-                <p className="text-xs text-[#F5F0E855]">{selectedAgent.title}</p>
+                <p className="text-lg font-semibold" style={{ color: "#C9A84C", fontFamily: "'Cormorant Garamond', serif" }}>
+                  Jordan Reed, Creative Director
+                </p>
+                <p className="text-sm mt-1" style={{ color: "#F5F0E855" }}>
+                  Ready to build the Golden Soul visual world.<br />
+                  Ask me to generate an image, write a brief, or plan your next campaign.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-center mt-2">
+                {[
+                  "Generate my anchor shot — fedora, twist locs, golden hour",
+                  "Show me the Golden Soul color preset",
+                  "Create a caricature concept for social media",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => { setInput(suggestion); textareaRef.current?.focus(); }}
+                    className="px-3 py-2 rounded-xl text-xs text-left transition-all"
+                    style={{ background: "#16161F", color: "#F5F0E8AA", border: "1px solid #C9A84C22" }}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
               </div>
             </div>
-            {output && (
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={copyToClipboard}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#C9A84C11] border border-[#C9A84C33] rounded-lg text-xs text-[#C9A84C] hover:bg-[#C9A84C22] transition-colors font-body"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                  {copied ? "Copied!" : "Copy"}
-                </button>
-                {isImagePrompt && (
-                  <button
-                    onClick={sendToImagePrompt}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-[#C9A84C22] border border-[#C9A84C44] rounded-lg text-xs text-[#C9A84C] hover:bg-[#C9A84C33] transition-colors font-body font-semibold"
-                  >
-                    <Image size={12} /> Send to Image Prompt
-                  </button>
-                )}
-                {isVideoPrompt && (
-                  <button
-                    onClick={sendToVideoPrompt}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-[#C9A84C22] border border-[#C9A84C44] rounded-lg text-xs text-[#C9A84C] hover:bg-[#C9A84C33] transition-colors font-body font-semibold"
-                  >
-                    <Video size={12} /> Send to Video Prompt
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {loading ? (
-            <div className="flex items-center gap-3 py-4">
-              <div className="w-5 h-5 border-2 border-[#C9A84C22] border-t-[#C9A84C] rounded-full animate-spin-gold" />
-              <p className="text-sm text-[#F5F0E877] font-body animate-pulse-gold">{selectedAgent.name} is thinking...</p>
-            </div>
-          ) : (
-            <pre className="whitespace-pre-wrap font-body text-sm text-[#F5F0E8CC] leading-relaxed bg-[#0A0A0F] rounded-lg p-4 border border-[#C9A84C11]">
-              {output}
-            </pre>
           )}
+
+          {/* Message list */}
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} msg={msg} onImageClick={setLightboxUrl} />
+          ))}
+
+          {/* Typing indicator */}
+          {loading && <TypingIndicator label={toolIndicator} />}
+
+          {/* Error */}
+          {error && (
+            <div className="mb-4 px-4 py-3 rounded-xl text-sm" style={{ background: "#2a0a0a", border: "1px solid #f8717144", color: "#fca5a5" }}>
+              {error}
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
         </div>
+      </div>
+
+      {/* Input bar */}
+      <div
+        className="flex-shrink-0 px-4 py-3"
+        style={{ borderTop: "1px solid #C9A84C1A", background: "#0A0A0F" }}
+      >
+        <div className="max-w-3xl mx-auto">
+          <div
+            className="relative rounded-2xl"
+            style={{ background: "#111118", border: "1px solid #C9A84C22" }}
+          >
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask Jordan anything — generate images, plan campaigns, write briefs..."
+              rows={1}
+              disabled={loading}
+              className="w-full resize-none bg-transparent text-sm outline-none rounded-2xl"
+              style={{
+                color: "#F5F0E8",
+                lineHeight: "1.5",
+                fontFamily: "'Montserrat', sans-serif",
+                minHeight: "52px",
+                maxHeight: "160px",
+                overflowY: "auto",
+                padding: "16px 56px 16px 16px",
+                display: "block",
+              }}
+            />
+            <button
+              onClick={send}
+              disabled={loading || !input.trim()}
+              className="absolute bottom-3 right-3 w-9 h-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0"
+              style={{
+                background: loading || !input.trim() ? "#C9A84C22" : "#C9A84C",
+                color: loading || !input.trim() ? "#C9A84C55" : "#0A0A0F",
+                cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+              }}
+            >
+              {loading ? (
+                <Spinner />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+              )}
+            </button>
+          </div>
+          <p className="text-xs mt-1.5 text-center" style={{ color: "#F5F0E833" }}>
+            Enter to send · Shift+Enter for new line · Images render inline
+          </p>
+        </div>
+      </div>
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
       )}
 
-      {/* Toast */}
-      {toastMsg && (
-        <div className="fixed bottom-24 md:bottom-6 right-6 z-50 bg-[#111118] border border-[#C9A84C] rounded-xl px-5 py-3 shadow-[0_0_30px_#C9A84C44] flex items-center gap-3 animate-slide-up">
-          <Check size={14} className="text-[#C9A84C]" />
-          <p className="text-sm font-body text-[#F5F0E8]">{toastMsg}</p>
-        </div>
+      {/* Import modal */}
+      {showImport && (
+        <ImportModal
+          sessionId={sessionId}
+          onClose={() => setShowImport(false)}
+          onImported={() => loadHistory(sessionId)}
+        />
       )}
     </div>
   );
