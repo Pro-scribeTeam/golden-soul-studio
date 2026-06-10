@@ -454,16 +454,16 @@ export async function POST(req: NextRequest) {
       raw_content: message,
     });
 
-    // Load full session history for API replay
+    // Load recent session history — cap at 20 turns to stay under token limits
     const { data: historyRows } = await supabase
       .from("agent_conversations")
       .select("role, raw_content")
       .eq("session_id", session_id)
-      .order("created_at", { ascending: true })
-      .limit(100);
+      .order("created_at", { ascending: false })
+      .limit(20);
 
     type AnthropicMessage = { role: string; content: unknown };
-    const messages: AnthropicMessage[] = (historyRows || []).map((r) => ({
+    const messages: AnthropicMessage[] = (historyRows || []).reverse().map((r) => ({
       role: r.role,
       content: r.raw_content,
     }));
@@ -493,6 +493,11 @@ export async function POST(req: NextRequest) {
 
       if (!anthropicRes.ok) {
         const errText = await anthropicRes.text();
+        // Retry once on rate limit after a short wait
+        if (anthropicRes.status === 429) {
+          await new Promise((r) => setTimeout(r, 8000));
+          continue;
+        }
         throw new Error(`Anthropic API error ${anthropicRes.status}: ${errText.slice(0, 300)}`);
       }
 
