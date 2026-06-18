@@ -17,7 +17,7 @@ export function MainContent({ children }: { children: React.ReactNode }) {
   return (
     <main
       className="flex-1 overflow-y-auto transition-all duration-300 pb-20 md:pb-0"
-      style={{ marginLeft: isMobile ? 0 : collapsed ? "64px" : "256px" }}
+      style={{ marginLeft: isMobile ? 0 : collapsed ? "0px" : "256px" }}
     >
       {children}
     </main>

@@ -166,10 +166,10 @@ function Spinner() {
 // ── Typing indicator ──────────────────────────────────────────────────────────
 function TypingIndicator({ label, agent }: { label: string; agent: Agent }) {
   return (
-    <div className="flex items-start gap-3 mb-4">
+    <div className="flex items-start gap-3 mb-4 flex-row-reverse">
       <AgentAvatar agent={agent} size="sm" />
       <div
-        className="rounded-2xl rounded-tl-none px-4 py-3 text-sm flex items-center gap-2"
+        className="rounded-2xl rounded-tr-none px-4 py-3 text-sm flex items-center gap-2"
         style={{ background: "#16161F", color: "#F5F0E8AA" }}
       >
         <Spinner />
@@ -192,7 +192,8 @@ function MessageBubble({
   const isUser = msg.role === "user";
 
   return (
-    <div className={`flex items-start gap-3 mb-5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+    // User = left, Agent = right
+    <div className={`flex items-start gap-3 mb-5 ${isUser ? "flex-row" : "flex-row-reverse"}`}>
       {/* Avatar */}
       {isUser ? (
         <div
@@ -206,7 +207,7 @@ function MessageBubble({
       )}
 
       {/* Bubble */}
-      <div className={`max-w-[78%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-2`}>
+      <div className={`max-w-[78%] ${isUser ? "items-start" : "items-end"} flex flex-col gap-2`}>
         <div
           className="rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
           style={
@@ -214,13 +215,13 @@ function MessageBubble({
               ? {
                   background: "#C9A84C22",
                   color: "#F5F0E8",
-                  borderRadius: "18px 4px 18px 18px",
+                  borderRadius: "4px 18px 18px 18px",
                   border: "1px solid #C9A84C44",
                 }
               : {
                   background: "#16161F",
                   color: "#F5F0E8CC",
-                  borderRadius: "4px 18px 18px 18px",
+                  borderRadius: "18px 4px 18px 18px",
                   border: "1px solid #ffffff0d",
                 }
           }
