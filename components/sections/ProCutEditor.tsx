@@ -463,83 +463,193 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
 }
 
 // ── Tab: Assets ────────────────────────────────────────────────────────────
-interface Asset { name:string; dur:string; type:"video"|"audio"|"image"; src:"uploaded"|"generated"|"drive"; url?:string; }
+interface Asset { name:string; dur:string; type:"video"|"audio"|"image"; src:"uploaded"|"generated"|"drive"; url?:string; thumb?:string; }
+interface HistoryItem { id:string; section:string; model:string; prompt?:string; output_url?:string; thumbnail_url?:string; created_at:string; }
+
+function sectionToType(s:string): "video"|"image" {
+  return (s==="video"||s==="motion"||s==="lipsync") ? "video" : "image";
+}
 
 function AssetsTab() {
+  const [view,setView]=useState<"local"|"history">("local");
   const [filter,setFilter]=useState("All");
   const [assets,setAssets]=useState<Asset[]>([]);
   const [q,setQ]=useState("");
+  const [history,setHistory]=useState<HistoryItem[]>([]);
+  const [histLoading,setHistLoading]=useState(false);
+  const [added,setAdded]=useState<Set<string>>(new Set());
   const fileRef=useRef<HTMLInputElement>(null);
-  const filters=["All","Video","Audio","Images","Uploaded"];
+  const filters=["All","Video","Audio","Images","Uploaded","Generated"];
+
+  const loadHistory=useCallback(async()=>{
+    setHistLoading(true);
+    try {
+      const res=await fetch("/api/supabase/history");
+      if(res.ok){ const d=await res.json(); setHistory(Array.isArray(d)?d:[]); }
+    } catch { /* silent */ }
+    finally{ setHistLoading(false); }
+  },[]);
+
+  useEffect(()=>{ if(view==="history") loadHistory(); },[view,loadHistory]);
 
   const handleFiles=(e:React.ChangeEvent<HTMLInputElement>)=>{
     const files=Array.from(e.target.files||[]);
-    const added:Asset[]=files.map(f=>({
+    const newOnes:Asset[]=files.map(f=>({
       name: f.name.replace(/\.[^.]+$/,""),
       dur: f.type.startsWith("video")||f.type.startsWith("audio") ? "—" : `${(f.size/1024).toFixed(0)}KB`,
       type: f.type.startsWith("video")?"video":f.type.startsWith("audio")?"audio":"image",
       src:"uploaded",
       url: URL.createObjectURL(f),
     }));
-    setAssets(p=>[...p,...added]);
+    setAssets(p=>[...p,...newOnes]);
     e.target.value="";
   };
 
+  const importFromHistory=(item:HistoryItem)=>{
+    if(!item.output_url) return;
+    const label=item.prompt ? item.prompt.slice(0,40) : `${item.section} · ${item.model}`;
+    setAssets(p=>[...p,{
+      name: label,
+      dur:"—",
+      type: sectionToType(item.section),
+      src:"generated",
+      url: item.output_url,
+      thumb: item.thumbnail_url||item.output_url,
+    }]);
+    setAdded(p=>new Set(p).add(item.id));
+  };
+
   const visible=assets.filter(a=>{
-    const matchFilter=filter==="All"||(filter==="Video"&&a.type==="video")||(filter==="Audio"&&a.type==="audio")||(filter==="Images"&&a.type==="image")||(filter==="Uploaded"&&a.src==="uploaded");
-    const matchQ=a.name.toLowerCase().includes(q.toLowerCase());
-    return matchFilter&&matchQ;
+    const mf=filter==="All"||(filter==="Video"&&a.type==="video")||(filter==="Audio"&&a.type==="audio")||(filter==="Images"&&a.type==="image")||(filter==="Uploaded"&&a.src==="uploaded")||(filter==="Generated"&&a.src==="generated");
+    return mf&&a.name.toLowerCase().includes(q.toLowerCase());
   });
 
   return (
     <div style={{display:"flex", flexDirection:"column", height:"100%", overflow:"hidden"}}>
-      <div style={{padding:"8px 10px", borderBottom:`1px solid ${C.border}`}}>
-        <div style={{display:"flex", gap:4, background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 8px"}}>
-          <Search size={12} color={C.muted}/>
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search assets..." style={{flex:1, background:"transparent", border:"none", outline:"none", color:C.text, fontSize:11}}/>
-        </div>
-        <div style={{display:"flex", gap:4, marginTop:8, flexWrap:"wrap"}}>
-          {filters.map(f=>(
-            <button key={f} onClick={()=>setFilter(f)} style={{
-              padding:"2px 7px", borderRadius:12, fontSize:10,
-              background:filter===f?`${C.gold}22`:"transparent",
-              border:`1px solid ${filter===f?C.gold+"44":C.border}`,
-              color:filter===f?C.gold:C.muted, cursor:"pointer",
-            }}>{f}</button>
-          ))}
-        </div>
+      {/* Source tabs */}
+      <div style={{display:"flex", borderBottom:`1px solid ${C.border}`, flexShrink:0}}>
+        {(["local","history"] as const).map(v=>(
+          <button key={v} onClick={()=>setView(v)} style={{
+            flex:1, padding:"8px 4px", background:"transparent", border:"none",
+            borderBottom: view===v?`2px solid ${C.gold}`:"2px solid transparent",
+            color: view===v?C.gold:C.muted, fontSize:10, cursor:"pointer", fontWeight:view===v?600:400,
+          }}>{v==="local"?"My Files":"Output History"}</button>
+        ))}
       </div>
-      <div style={{flex:1, overflowY:"auto", padding:"8px 10px"}}>
-        {visible.length===0 ? (
-          <div style={{textAlign:"center", padding:"24px 0", color:C.muted, fontSize:10}}>
-            {assets.length===0 ? "No media yet. Upload files to get started." : "No assets match this filter."}
+
+      {view==="local" ? (
+        <>
+          <div style={{padding:"8px 10px", borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:"flex", gap:4, background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 8px"}}>
+              <Search size={12} color={C.muted}/>
+              <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search assets..." style={{flex:1, background:"transparent", border:"none", outline:"none", color:C.text, fontSize:11}}/>
+            </div>
+            <div style={{display:"flex", gap:3, marginTop:7, flexWrap:"wrap"}}>
+              {filters.map(f=>(
+                <button key={f} onClick={()=>setFilter(f)} style={{
+                  padding:"2px 6px", borderRadius:10, fontSize:9,
+                  background:filter===f?`${C.gold}22`:"transparent",
+                  border:`1px solid ${filter===f?C.gold+"44":C.border}`,
+                  color:filter===f?C.gold:C.muted, cursor:"pointer",
+                }}>{f}</button>
+              ))}
+            </div>
           </div>
-        ) : (
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6}}>
-            {visible.map((a,i)=>(
-              <div key={i} style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"pointer"}}>
-                <div style={{height:52, background:a.type==="video"?C.dTeal:a.type==="audio"?C.dBlue:C.dPurp, display:"flex", alignItems:"center", justifyContent:"center"}}>
-                  {a.type==="video"?<Film size={18} color={C.teal}/>:a.type==="audio"?<Music size={18} color={C.gold}/>:<Eye size={18} color={`${C.gold}88`}/>}
-                </div>
-                <div style={{padding:"4px 6px"}}>
-                  <p style={{fontSize:9, color:C.text, margin:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{a.name}</p>
-                  <p style={{fontSize:9, color:C.muted, margin:0}}>{a.dur}</p>
-                </div>
+          <div style={{flex:1, overflowY:"auto", padding:"8px 10px"}}>
+            {visible.length===0 ? (
+              <div style={{textAlign:"center", padding:"24px 0", color:C.muted, fontSize:10}}>
+                {assets.length===0?"No media yet. Upload or import from Output History.":"No assets match this filter."}
               </div>
-            ))}
+            ) : (
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6}}>
+                {visible.map((a,i)=>(
+                  <div key={i} style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"pointer"}}>
+                    <div style={{height:52, background:a.type==="video"?C.dTeal:a.type==="audio"?C.dBlue:C.dPurp, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative"}}>
+                      {a.thumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.thumb} alt={a.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                      ) : a.type==="video"?<Film size={18} color={C.teal}/>:a.type==="audio"?<Music size={18} color={C.gold}/>:<Eye size={18} color={`${C.gold}88`}/>}
+                      <div style={{position:"absolute",bottom:2,right:3,fontSize:7,color:C.gold,background:"#000A",padding:"1px 3px",borderRadius:2}}>{a.src}</div>
+                    </div>
+                    <div style={{padding:"4px 6px"}}>
+                      <p style={{fontSize:9, color:C.text, margin:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{a.name}</p>
+                      <p style={{fontSize:9, color:C.muted, margin:0}}>{a.dur}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input ref={fileRef} type="file" multiple accept="video/*,audio/*,image/*" style={{display:"none"}} onChange={handleFiles}/>
+            <button onClick={()=>fileRef.current?.click()} style={{
+              width:"100%", marginTop:10, padding:"8px",
+              borderRadius:8, border:`1px dashed ${C.border}`,
+              background:"transparent", color:C.muted, cursor:"pointer", fontSize:11,
+              display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+            }}>
+              <Upload size={12}/> Upload Media
+            </button>
           </div>
-        )}
-        <input ref={fileRef} type="file" multiple accept="video/*,audio/*,image/*" style={{display:"none"}} onChange={handleFiles}/>
-        <button onClick={()=>fileRef.current?.click()} style={{
-          width:"100%", marginTop:10, padding:"8px",
-          borderRadius:8, border:`1px dashed ${C.border}`,
-          background:"transparent", color:C.muted,
-          cursor:"pointer", fontSize:11,
-          display:"flex", alignItems:"center", justifyContent:"center", gap:6,
-        }}>
-          <Upload size={12}/> Upload Media
-        </button>
-      </div>
+        </>
+      ) : (
+        <div style={{flex:1, overflowY:"auto", padding:"8px 10px"}}>
+          {histLoading ? (
+            <div style={{display:"flex", alignItems:"center", justifyContent:"center", padding:"24px 0", gap:8}}>
+              <Spinner/><span style={{fontSize:10,color:C.muted}}>Loading history...</span>
+            </div>
+          ) : history.length===0 ? (
+            <div style={{textAlign:"center", padding:"24px 0", color:C.muted, fontSize:10}}>
+              No output history found. Generate something first.
+            </div>
+          ) : (
+            <>
+              <p style={{fontSize:9, color:C.muted, margin:"0 0 8px 0"}}>Click to import into editor</p>
+              <div style={{display:"flex", flexDirection:"column", gap:5}}>
+                {history.map(item=>(
+                  <div key={item.id} style={{
+                    display:"flex", alignItems:"center", gap:8,
+                    background:"#0D0D0D", border:`1px solid ${added.has(item.id)?C.gold+"44":C.border}`,
+                    borderRadius:8, overflow:"hidden", padding:0,
+                  }}>
+                    {/* Thumb */}
+                    <div style={{width:48, height:48, flexShrink:0, background:C.dTeal, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden"}}>
+                      {(item.thumbnail_url||item.output_url) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.thumbnail_url||item.output_url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                      ) : <Film size={16} color={C.teal}/>}
+                    </div>
+                    {/* Info */}
+                    <div style={{flex:1, minWidth:0, padding:"4px 0"}}>
+                      <p style={{fontSize:10, color:C.text, margin:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>
+                        {item.prompt ? item.prompt.slice(0,38)+"…" : item.model}
+                      </p>
+                      <p style={{fontSize:9, color:C.muted, margin:0, textTransform:"capitalize"}}>{item.section}</p>
+                    </div>
+                    {/* Import btn */}
+                    <button onClick={()=>importFromHistory(item)} disabled={!item.output_url} style={{
+                      flexShrink:0, marginRight:8,
+                      padding:"4px 8px", borderRadius:5, fontSize:9,
+                      background: added.has(item.id)?`${C.gold}22`:"transparent",
+                      border:`1px solid ${added.has(item.id)?C.gold+"44":C.border}`,
+                      color: added.has(item.id)?C.gold:C.muted,
+                      cursor: item.output_url?"pointer":"default",
+                    }}>
+                      {added.has(item.id)?"Added":"+ Add"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={loadHistory} style={{
+                width:"100%", marginTop:10, padding:"6px",
+                borderRadius:8, border:`1px solid ${C.border}`,
+                background:"transparent", color:C.muted, cursor:"pointer", fontSize:10,
+                display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+              }}>
+                <Star size={10}/> Refresh History
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
