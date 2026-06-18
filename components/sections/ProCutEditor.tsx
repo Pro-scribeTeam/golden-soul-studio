@@ -563,7 +563,13 @@ function AssetsTab() {
             ) : (
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6}}>
                 {visible.map((a,i)=>(
-                  <div key={i} style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"pointer"}}>
+                  <div key={i}
+                    draggable
+                    onDragStart={e=>{
+                      e.dataTransfer.effectAllowed="copy";
+                      e.dataTransfer.setData("application/procut-asset", JSON.stringify({name:a.name,type:a.type,src:a.src,url:a.url}));
+                    }}
+                    style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"grab"}}>
                     <div style={{height:52, background:a.type==="video"?C.dTeal:a.type==="audio"?C.dBlue:C.dPurp, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative"}}>
                       {a.thumb ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -605,11 +611,22 @@ function AssetsTab() {
               <p style={{fontSize:9, color:C.muted, margin:"0 0 8px 0"}}>Click to import into editor</p>
               <div style={{display:"flex", flexDirection:"column", gap:5}}>
                 {history.map(item=>(
-                  <div key={item.id} style={{
-                    display:"flex", alignItems:"center", gap:8,
-                    background:"#0D0D0D", border:`1px solid ${added.has(item.id)?C.gold+"44":C.border}`,
-                    borderRadius:8, overflow:"hidden", padding:0,
-                  }}>
+                  <div key={item.id}
+                    draggable={!!item.output_url}
+                    onDragStart={e=>{
+                      if(!item.output_url) return;
+                      const label=item.prompt?item.prompt.slice(0,40):`${item.section} · ${item.model}`;
+                      e.dataTransfer.effectAllowed="copy";
+                      e.dataTransfer.setData("application/procut-asset", JSON.stringify({
+                        name:label, type:sectionToType(item.section), src:"generated", url:item.output_url,
+                      }));
+                    }}
+                    style={{
+                      display:"flex", alignItems:"center", gap:8,
+                      background:"#0D0D0D", border:`1px solid ${added.has(item.id)?C.gold+"44":C.border}`,
+                      borderRadius:8, overflow:"hidden", padding:0,
+                      cursor: item.output_url?"grab":"default",
+                    }}>
                     {/* Thumb */}
                     <div style={{width:48, height:48, flexShrink:0, background:C.dTeal, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden"}}>
                       {(item.thumbnail_url||item.output_url) ? (
@@ -1068,15 +1085,38 @@ function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
 // ── ZONE 5: Timeline ───────────────────────────────────────────────────────
 const LABEL_W=160, TRACK_H=58, AUDIO_H=46;
 
-function Timeline({ tracks, clips, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration }: {
-  tracks:Track[]; clips:Clip[];
+function Timeline({ tracks, clips, setClips, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration }: {
+  tracks:Track[]; clips:Clip[]; setClips:React.Dispatch<React.SetStateAction<Clip[]>>;
   playhead:number; setPlayhead:(t:number)=>void;
   zoom:number; setZoom:(z:number)=>void;
   selectedId:string|null; setSelectedId:(id:string|null)=>void;
   duration:number;
 }) {
   const rulerRef=useRef<HTMLDivElement>(null);
+  const [dragOver,setDragOver]=useState<string|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
+
+  const handleDrop=(e:React.DragEvent<HTMLDivElement>, track:Track)=>{
+    e.preventDefault();
+    setDragOver(null);
+    const raw=e.dataTransfer.getData("application/procut-asset");
+    if(!raw) return;
+    let asset:{name:string; type:string; src:string; url?:string};
+    try { asset=JSON.parse(raw); } catch { return; }
+    const rect=e.currentTarget.getBoundingClientRect();
+    const secs=Math.max(0, Math.round(((e.clientX-rect.left)/zoom)*10)/10);
+    const clipType: Clip["type"] = asset.type==="audio" ? "audio" : "video";
+    const defaultDur = asset.type==="audio" ? 30 : 10;
+    setClips(p=>[...p,{
+      id:`c${Date.now()}`,
+      trackId: track.id,
+      name: asset.name,
+      start: secs,
+      duration: defaultDur,
+      type: clipType,
+      src: asset.src as Clip["src"],
+    }]);
+  };
 
   const clickRuler=(e:React.MouseEvent)=>{
     if(!rulerRef.current) return;
@@ -1191,10 +1231,19 @@ function Timeline({ tracks, clips, playhead, setPlayhead, zoom, setZoom, selecte
               const h=t.type==="audio"?AUDIO_H:TRACK_H;
               const tc=clips.filter(c=>c.trackId===t.id);
               return (
-                <div key={t.id} style={{
-                  height:h, borderBottom:`1px solid ${C.border}`,
-                  position:"relative", background:"transparent",
-                }}>
+                <div key={t.id}
+                  onDragOver={e=>{ e.preventDefault(); setDragOver(t.id); }}
+                  onDragEnter={e=>{ e.preventDefault(); setDragOver(t.id); }}
+                  onDragLeave={()=>setDragOver(null)}
+                  onDrop={e=>handleDrop(e,t)}
+                  style={{
+                    height:h, borderBottom:`1px solid ${C.border}`,
+                    position:"relative",
+                    background: dragOver===t.id ? `${C.gold}0A` : "transparent",
+                    outline: dragOver===t.id ? `1px dashed ${C.gold}44` : "none",
+                    outlineOffset: -1,
+                    transition:"background 0.1s",
+                  }}>
                   {tc.map(clip=>{
                     const sel=clip.id===selectedId;
                     return (
@@ -1436,7 +1485,7 @@ export default function ProCutEditor() {
   const [narrative,setNarrative]=useState(false);
   const [storyText,setStoryText]=useState("");
   const [tracks]=useState<Track[]>(INIT_TRACKS);
-  const [clips]=useState<Clip[]>([]);
+  const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
 
   // Collapse sidebar when editor opens
@@ -1497,7 +1546,7 @@ export default function ProCutEditor() {
           storyText={storyText} setStoryText={setStoryText}
         />
         <Timeline
-          tracks={tracks} clips={clips}
+          tracks={tracks} clips={clips} setClips={setClips}
           playhead={playhead} setPlayhead={setPlayhead}
           zoom={zoom} setZoom={setZoom}
           selectedId={selectedId} setSelectedId={setSelectedId}
