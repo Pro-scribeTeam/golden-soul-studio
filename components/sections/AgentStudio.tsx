@@ -49,6 +49,21 @@ const AGENTS = {
     ],
     outputTags: ["Script", "Scene Breakdown", "Shot List", "Storyboard Notes", "Production Brief", "Model Selection", "Prompt Ready", "Credit Estimate"],
   },
+  group: {
+    id: "group",
+    name: "Team Studio",
+    title: "Jordan · Maxwell · Nova — All Agents",
+    initials: "GS",
+    color: "#F5F0E8",
+    emoji: "👥",
+    welcome: "The full team is in the room.\nJordan handles visuals, Maxwell writes the story, Nova runs production. Ask anything — they'll each weigh in.",
+    suggestions: [
+      "Plan Jeff's full music video from concept to final output",
+      "I have a concept — give me creative direction, script, and production plan",
+      "What's the strategy for Jeff's relaunch drop?",
+    ],
+    outputTags: ["Script", "Scene Breakdown", "Shot List", "Storyboard Notes", "Production Brief", "Model Selection", "Prompt Ready", "Credit Estimate"],
+  },
 } as const;
 
 type AgentId = keyof typeof AGENTS;
@@ -83,6 +98,61 @@ function getSessionId(): string {
   return id;
 }
 
+// Render **bold** markdown inline
+function renderContent(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  return lines.map((line, lineIdx) => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return (
+      <React.Fragment key={lineIdx}>
+        {parts.map((part, partIdx) =>
+          part.startsWith("**") && part.endsWith("**") ? (
+            <strong key={partIdx} style={{ color: "#F5F0E8", fontWeight: 700 }}>
+              {part.slice(2, -2)}
+            </strong>
+          ) : (
+            part
+          )
+        )}
+        {lineIdx < lines.length - 1 && "\n"}
+      </React.Fragment>
+    );
+  });
+}
+
+// ── Agent avatar ──────────────────────────────────────────────────────────────
+function AgentAvatar({ agent, size = "md" }: { agent: Agent; size?: "sm" | "md" | "lg" }) {
+  const dims = size === "sm" ? "w-8 h-8 text-xs" : size === "lg" ? "w-12 h-12 text-sm" : "w-9 h-9 text-sm";
+
+  if (agent.id === "group") {
+    return (
+      <div
+        className={`${dims} rounded-full flex items-center justify-center flex-shrink-0`}
+        style={{ background: "#16161F", border: "1px solid #C9A84C33" }}
+      >
+        <div className="flex gap-[3px]">
+          <div className="w-2 h-2 rounded-full" style={{ background: AGENTS.jordan.color }} />
+          <div className="w-2 h-2 rounded-full" style={{ background: AGENTS.maxwell.color }} />
+          <div className="w-2 h-2 rounded-full" style={{ background: AGENTS.nova.color }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${dims} rounded-full flex items-center justify-center font-bold flex-shrink-0`}
+      style={{
+        background: `linear-gradient(135deg, ${agent.color}33, ${agent.color}66)`,
+        color: agent.color,
+        border: `1px solid ${agent.color}44`,
+      }}
+    >
+      {agent.initials}
+    </div>
+  );
+}
+
 // ── Spinner ───────────────────────────────────────────────────────────────────
 function Spinner() {
   return (
@@ -94,15 +164,10 @@ function Spinner() {
 }
 
 // ── Typing indicator ──────────────────────────────────────────────────────────
-function TypingIndicator({ label, agentInitials, agentColor }: { label: string; agentInitials: string; agentColor: string }) {
+function TypingIndicator({ label, agent }: { label: string; agent: Agent }) {
   return (
     <div className="flex items-start gap-3 mb-4">
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
-        style={{ background: `${agentColor}22`, color: agentColor }}
-      >
-        {agentInitials}
-      </div>
+      <AgentAvatar agent={agent} size="sm" />
       <div
         className="rounded-2xl rounded-tl-none px-4 py-3 text-sm flex items-center gap-2"
         style={{ background: "#16161F", color: "#F5F0E8AA" }}
@@ -118,29 +183,27 @@ function TypingIndicator({ label, agentInitials, agentColor }: { label: string; 
 function MessageBubble({
   msg,
   onImageClick,
-  agentInitials,
-  agentColor,
+  agent,
 }: {
   msg: ChatMessage;
   onImageClick: (url: string) => void;
-  agentInitials: string;
-  agentColor: string;
+  agent: Agent;
 }) {
   const isUser = msg.role === "user";
 
   return (
     <div className={`flex items-start gap-3 mb-5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       {/* Avatar */}
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
-        style={
-          isUser
-            ? { background: "#C9A84C", color: "#0A0A0F" }
-            : { background: `${agentColor}22`, color: agentColor }
-        }
-      >
-        {isUser ? "J" : agentInitials}
-      </div>
+      {isUser ? (
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+          style={{ background: "#C9A84C", color: "#0A0A0F" }}
+        >
+          J
+        </div>
+      ) : (
+        <AgentAvatar agent={agent} size="sm" />
+      )}
 
       {/* Bubble */}
       <div className={`max-w-[78%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-2`}>
@@ -162,7 +225,7 @@ function MessageBubble({
                 }
           }
         >
-          {msg.content}
+          {renderContent(msg.content)}
         </div>
 
         {/* Inline images */}
@@ -325,7 +388,7 @@ export default function AgentStudio() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ── Lock main scroll so chat manages its own ────────────────────────────────
+  // ── Lock main scroll ────────────────────────────────────────────────────────
   useEffect(() => {
     const main = document.querySelector("main") as HTMLElement | null;
     if (main) {
@@ -352,7 +415,7 @@ export default function AgentStudio() {
         })));
       }
     } catch {
-      // silent — history is not critical
+      // silent
     } finally {
       setHistoryLoaded(true);
     }
@@ -390,7 +453,11 @@ export default function AgentStudio() {
     setInput("");
     setLoading(true);
     setError(null);
-    setToolIndicator(`${agent.name} is thinking...`);
+    setToolIndicator(
+      selectedAgentId === "group"
+        ? "Team Studio is collaborating..."
+        : `${agent.name} is thinking...`
+    );
 
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
@@ -434,7 +501,7 @@ export default function AgentStudio() {
     setHistoryLoaded(true);
   };
 
-  // ── Textarea auto-resize + Enter to send ────────────────────────────────────
+  // ── Textarea ─────────────────────────────────────────────────────────────────
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -450,47 +517,37 @@ export default function AgentStudio() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div
-      className="flex flex-col"
-      style={{ height: "100vh", background: "#0A0A0F" }}
-    >
+    <div className="flex flex-col" style={{ height: "100vh", background: "#0A0A0F" }}>
+
       {/* Header */}
       <div
         className="flex items-center justify-between px-5 py-3 flex-shrink-0"
         style={{ borderBottom: "1px solid #C9A84C1A", background: "#0A0A0F" }}
       >
-        {/* Agent selector */}
+        {/* Agent selector trigger */}
         <div className="relative">
           <button
             onClick={() => setShowAgentPicker((v) => !v)}
             className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition-all"
             style={{ background: showAgentPicker ? "#16161F" : "transparent" }}
           >
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-              style={{
-                background: `linear-gradient(135deg, ${agent.color}33, ${agent.color}66)`,
-                color: agent.color,
-                border: `1px solid ${agent.color}44`,
-              }}
-            >
-              {agent.initials}
-            </div>
+            <AgentAvatar agent={agent} size="md" />
             <div className="text-left">
               <p className="text-sm font-semibold" style={{ color: agent.color, fontFamily: "'Cormorant Garamond', serif", fontSize: "16px" }}>
                 {agent.name}
               </p>
               <p className="text-xs" style={{ color: "#F5F0E855" }}>{agent.title}</p>
             </div>
+            {/* Arrow — larger */}
             <svg
               style={{
-                marginLeft: "4px",
+                marginLeft: "6px",
                 transform: showAgentPicker ? "rotate(180deg)" : "rotate(0deg)",
                 transition: "transform 0.15s",
-                color: "#F5F0E844",
+                color: "#F5F0E877",
                 flexShrink: 0,
               }}
-              width="12" height="12" viewBox="0 0 24 24" fill="currentColor"
+              width="20" height="20" viewBox="0 0 24 24" fill="currentColor"
             >
               <path d="M7 10l5 5 5-5z" />
             </svg>
@@ -499,33 +556,60 @@ export default function AgentStudio() {
           {/* Dropdown */}
           {showAgentPicker && (
             <div
-              className="absolute top-full left-0 mt-2 w-72 rounded-2xl overflow-hidden z-40"
+              className="absolute top-full left-0 mt-2 w-80 rounded-2xl overflow-hidden z-40"
               style={{ background: "#111118", border: "1px solid #C9A84C22", boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}
             >
-              {(Object.values(AGENTS) as Agent[]).map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => switchAgent(a.id as AgentId)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5"
-                  style={{ borderBottom: "1px solid #ffffff08" }}
-                >
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                    style={{ background: `${a.color}22`, color: a.color, border: `1px solid ${a.color}33` }}
+              {/* Individual agents */}
+              {(["jordan", "maxwell", "nova"] as AgentId[]).map((id) => {
+                const a = AGENTS[id];
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => switchAgent(a.id as AgentId)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5"
+                    style={{ borderBottom: "1px solid #ffffff08" }}
                   >
-                    {a.initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: a.id === selectedAgentId ? a.color : "#F5F0E8CC" }}>
-                      {a.name}
+                    <AgentAvatar agent={a} size="md" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate" style={{ color: a.id === selectedAgentId ? a.color : "#F5F0E8CC" }}>
+                        {a.name}
+                      </p>
+                      <p className="text-xs truncate" style={{ color: "#F5F0E855" }}>{a.title}</p>
+                    </div>
+                    {a.id === selectedAgentId && (
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: a.color }} />
+                    )}
+                  </button>
+                );
+              })}
+
+              {/* Separator */}
+              <div style={{ height: "1px", background: "#C9A84C22", margin: "4px 0" }} />
+
+              {/* Group option */}
+              <button
+                onClick={() => switchAgent("group")}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5"
+              >
+                <AgentAvatar agent={AGENTS.group} size="md" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold truncate" style={{ color: "group" === selectedAgentId ? "#F5F0E8" : "#F5F0E8CC" }}>
+                      {AGENTS.group.name}
                     </p>
-                    <p className="text-xs truncate" style={{ color: "#F5F0E855" }}>{a.title}</p>
+                    <span
+                      className="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0"
+                      style={{ background: "#C9A84C22", color: "#C9A84C", fontSize: "10px" }}
+                    >
+                      GROUP
+                    </span>
                   </div>
-                  {a.id === selectedAgentId && (
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: a.color }} />
-                  )}
-                </button>
-              ))}
+                  <p className="text-xs truncate" style={{ color: "#F5F0E855" }}>{AGENTS.group.title}</p>
+                </div>
+                {"group" === selectedAgentId && (
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "#C9A84C" }} />
+                )}
+              </button>
             </div>
           )}
         </div>
@@ -555,17 +639,42 @@ export default function AgentStudio() {
         onClick={() => setShowAgentPicker(false)}
       >
         <div className="max-w-3xl mx-auto">
+
           {/* Welcome state */}
           {historyLoaded && messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl"
-                style={{ background: `${agent.color}1A`, border: `1px solid ${agent.color}33` }}
-              >
-                {agent.emoji}
-              </div>
+
+              {/* Avatar — group shows stacked circles */}
+              {agent.id === "group" ? (
+                <div className="flex items-center justify-center">
+                  <div className="flex -space-x-3">
+                    {([AGENTS.jordan, AGENTS.maxwell, AGENTS.nova] as Agent[]).map((a) => (
+                      <div
+                        key={a.id}
+                        className="w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold"
+                        style={{
+                          background: `${a.color}33`,
+                          color: a.color,
+                          border: `2px solid #0A0A0F`,
+                          boxShadow: `0 0 0 1px ${a.color}44`,
+                        }}
+                      >
+                        {a.initials}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center text-2xl"
+                  style={{ background: `${agent.color}1A`, border: `1px solid ${agent.color}33` }}
+                >
+                  {agent.emoji}
+                </div>
+              )}
+
               <div>
-                <p className="text-lg font-semibold" style={{ color: agent.color, fontFamily: "'Cormorant Garamond', serif" }}>
+                <p className="text-lg font-semibold" style={{ color: agent.id === "group" ? "#C9A84C" : agent.color, fontFamily: "'Cormorant Garamond', serif" }}>
                   {agent.name}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: "#F5F0E855" }}>{agent.title}</p>
@@ -580,7 +689,11 @@ export default function AgentStudio() {
                     <span
                       key={tag}
                       className="px-2.5 py-1 rounded-lg text-xs"
-                      style={{ background: `${agent.color}15`, color: agent.color, border: `1px solid ${agent.color}30` }}
+                      style={{
+                        background: agent.id === "group" ? "#C9A84C15" : `${agent.color}15`,
+                        color: agent.id === "group" ? "#C9A84C" : agent.color,
+                        border: `1px solid ${agent.id === "group" ? "#C9A84C30" : `${agent.color}30`}`,
+                      }}
                     >
                       {tag}
                     </span>
@@ -609,19 +722,12 @@ export default function AgentStudio() {
               key={msg.id}
               msg={msg}
               onImageClick={setLightboxUrl}
-              agentInitials={agent.initials}
-              agentColor={agent.color}
+              agent={agent}
             />
           ))}
 
           {/* Typing indicator */}
-          {loading && (
-            <TypingIndicator
-              label={toolIndicator}
-              agentInitials={agent.initials}
-              agentColor={agent.color}
-            />
-          )}
+          {loading && <TypingIndicator label={toolIndicator} agent={agent} />}
 
           {/* Error */}
           {error && (
@@ -649,7 +755,11 @@ export default function AgentStudio() {
               value={input}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
-              placeholder={`Ask ${agent.name} anything...`}
+              placeholder={
+                selectedAgentId === "group"
+                  ? "Ask the full team anything..."
+                  : `Ask ${agent.name} anything...`
+              }
               rows={1}
               disabled={loading}
               className="w-full resize-none bg-transparent text-sm outline-none rounded-2xl"
