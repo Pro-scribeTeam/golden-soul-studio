@@ -1,6 +1,6 @@
 import {
   Video, Image, PersonStanding, Mic2, Palette,
-  Smartphone, PenTool, Bot, Eye, FolderOpen,
+  Smartphone, PenTool, Bot, Eye, FolderOpen, Clapperboard,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -22,5 +22,6 @@ export const NAV_ITEMS: NavItem[] = [
   { step: 7,  href: "/design",  icon: PenTool,        label: "Design Assets",    shortLabel: "Design" },
   { step: 8,  href: "/agent",   icon: Bot,            label: "Agent Studio",     shortLabel: "Agent"  },
   { step: 9,  href: "/brand",   icon: Eye,            label: "Brand Preview",    shortLabel: "Brand"  },
-  { step: 10, href: "/history", icon: FolderOpen,     label: "Output History",   shortLabel: "History"},
+  { step: 10, href: "/history", icon: FolderOpen,      label: "Output History",   shortLabel: "History" },
+  { step: 11, href: "/editor", icon: Clapperboard,    label: "ProCut Editor",    shortLabel: "ProCut"  },
 ];
