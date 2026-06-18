@@ -2,6 +2,58 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
+// ── Agent definitions ─────────────────────────────────────────────────────────
+const AGENTS = {
+  jordan: {
+    id: "jordan",
+    name: "Jordan Reed",
+    title: "Creative Director · Golden Soul Studio",
+    initials: "JR",
+    color: "#C9A84C",
+    emoji: "🎨",
+    welcome: "Ready to build the Golden Soul visual world.\nAsk me to generate an image, write a brief, or plan your next campaign.",
+    suggestions: [
+      "Generate my anchor shot — fedora, twist locs, golden hour",
+      "Show me the Golden Soul color preset",
+      "Create a caricature concept for social media",
+    ],
+    outputTags: [] as string[],
+  },
+  maxwell: {
+    id: "maxwell",
+    name: "Maxwell Cruz",
+    title: "Screenwriter & Story Director",
+    initials: "MC",
+    color: "#6BBFB5",
+    emoji: "🎬",
+    welcome: "Let's build the story. Give me a concept and I'll write the full script with scene-by-scene Golden Soul Studio prompts ready to execute.",
+    suggestions: [
+      "Write a music video treatment for a new soul ballad",
+      "Script a 60-second social content series — 5 episodes",
+      "Create a short film narrative for Jeff's comeback story",
+    ],
+    outputTags: ["Script", "Scene Breakdown", "Shot List", "Storyboard Notes", "Production Brief", "Model Selection", "Prompt Ready", "Credit Estimate"],
+  },
+  nova: {
+    id: "nova",
+    name: "Nova Vega",
+    title: "Video Producer",
+    initials: "NV",
+    color: "#A78BFA",
+    emoji: "🎥",
+    welcome: "Ready to execute. Hand me Maxwell's script or a brief — I'll handle model selection, settings, credit estimation, and quality control.",
+    suggestions: [
+      "What model should I use for Jeff's dance scene?",
+      "Estimate credits for a 5-scene music video",
+      "Optimize this shot for Instagram Reels (9:16)",
+    ],
+    outputTags: ["Script", "Scene Breakdown", "Shot List", "Storyboard Notes", "Production Brief", "Model Selection", "Prompt Ready", "Credit Estimate"],
+  },
+} as const;
+
+type AgentId = keyof typeof AGENTS;
+type Agent = typeof AGENTS[AgentId];
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMessage {
   id: string;
@@ -42,14 +94,14 @@ function Spinner() {
 }
 
 // ── Typing indicator ──────────────────────────────────────────────────────────
-function TypingIndicator({ label }: { label: string }) {
+function TypingIndicator({ label, agentInitials, agentColor }: { label: string; agentInitials: string; agentColor: string }) {
   return (
     <div className="flex items-start gap-3 mb-4">
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
-        style={{ background: "#C9A84C22", color: "#C9A84C" }}
+        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+        style={{ background: `${agentColor}22`, color: agentColor }}
       >
-        J
+        {agentInitials}
       </div>
       <div
         className="rounded-2xl rounded-tl-none px-4 py-3 text-sm flex items-center gap-2"
@@ -66,9 +118,13 @@ function TypingIndicator({ label }: { label: string }) {
 function MessageBubble({
   msg,
   onImageClick,
+  agentInitials,
+  agentColor,
 }: {
   msg: ChatMessage;
   onImageClick: (url: string) => void;
+  agentInitials: string;
+  agentColor: string;
 }) {
   const isUser = msg.role === "user";
 
@@ -80,10 +136,10 @@ function MessageBubble({
         style={
           isUser
             ? { background: "#C9A84C", color: "#0A0A0F" }
-            : { background: "#C9A84C22", color: "#C9A84C" }
+            : { background: `${agentColor}22`, color: agentColor }
         }
       >
-        {isUser ? "J" : "JR"}
+        {isUser ? "J" : agentInitials}
       </div>
 
       {/* Bubble */}
@@ -256,11 +312,15 @@ export default function AgentStudio() {
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState("default");
   const [loading, setLoading] = useState(false);
-  const [toolIndicator, setToolIndicator] = useState<string>("Jordan is thinking...");
+  const [toolIndicator, setToolIndicator] = useState<string>("Thinking...");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentId>("jordan");
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+
+  const agent: Agent = AGENTS[selectedAgentId];
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -303,6 +363,18 @@ export default function AgentStudio() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // ── Switch agent (starts a new session) ──────────────────────────────────────
+  const switchAgent = (id: AgentId) => {
+    if (id === selectedAgentId) { setShowAgentPicker(false); return; }
+    setSelectedAgentId(id);
+    setShowAgentPicker(false);
+    const sid = newSessionId();
+    localStorage.setItem("gss_agent_session", sid);
+    setSessionId(sid);
+    setMessages([]);
+    setHistoryLoaded(true);
+  };
+
   // ── Send message ────────────────────────────────────────────────────────────
   const send = async () => {
     const text = input.trim();
@@ -318,22 +390,20 @@ export default function AgentStudio() {
     setInput("");
     setLoading(true);
     setError(null);
-    setToolIndicator("Jordan is thinking...");
+    setToolIndicator(`${agent.name} is thinking...`);
 
-    // Resize textarea back
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, session_id: sessionId }),
+        body: JSON.stringify({ message: text, session_id: sessionId, agent_id: selectedAgentId }),
       });
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || "Request failed");
 
-      // Update indicator for any tool calls
       if (data.tool_calls && data.tool_calls.length > 0) {
         const lastTool = data.tool_calls[data.tool_calls.length - 1] as ToolCall;
         setToolIndicator(lastTool.indicator);
@@ -389,19 +459,75 @@ export default function AgentStudio() {
         className="flex items-center justify-between px-5 py-3 flex-shrink-0"
         style={{ borderBottom: "1px solid #C9A84C1A", background: "#0A0A0F" }}
       >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold"
-            style={{ background: "linear-gradient(135deg, #C9A84C, #8B6914)", color: "#0A0A0F" }}
+        {/* Agent selector */}
+        <div className="relative">
+          <button
+            onClick={() => setShowAgentPicker((v) => !v)}
+            className="flex items-center gap-3 rounded-xl px-2 py-1.5 transition-all"
+            style={{ background: showAgentPicker ? "#16161F" : "transparent" }}
           >
-            JR
-          </div>
-          <div>
-            <p className="text-sm font-semibold" style={{ color: "#C9A84C", fontFamily: "'Cormorant Garamond', serif", fontSize: "16px" }}>
-              Jordan Reed
-            </p>
-            <p className="text-xs" style={{ color: "#F5F0E855" }}>Creative Director · Golden Soul Studio</p>
-          </div>
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+              style={{
+                background: `linear-gradient(135deg, ${agent.color}33, ${agent.color}66)`,
+                color: agent.color,
+                border: `1px solid ${agent.color}44`,
+              }}
+            >
+              {agent.initials}
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-semibold" style={{ color: agent.color, fontFamily: "'Cormorant Garamond', serif", fontSize: "16px" }}>
+                {agent.name}
+              </p>
+              <p className="text-xs" style={{ color: "#F5F0E855" }}>{agent.title}</p>
+            </div>
+            <svg
+              style={{
+                marginLeft: "4px",
+                transform: showAgentPicker ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.15s",
+                color: "#F5F0E844",
+                flexShrink: 0,
+              }}
+              width="12" height="12" viewBox="0 0 24 24" fill="currentColor"
+            >
+              <path d="M7 10l5 5 5-5z" />
+            </svg>
+          </button>
+
+          {/* Dropdown */}
+          {showAgentPicker && (
+            <div
+              className="absolute top-full left-0 mt-2 w-72 rounded-2xl overflow-hidden z-40"
+              style={{ background: "#111118", border: "1px solid #C9A84C22", boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}
+            >
+              {(Object.values(AGENTS) as Agent[]).map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => switchAgent(a.id as AgentId)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5"
+                  style={{ borderBottom: "1px solid #ffffff08" }}
+                >
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                    style={{ background: `${a.color}22`, color: a.color, border: `1px solid ${a.color}33` }}
+                  >
+                    {a.initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: a.id === selectedAgentId ? a.color : "#F5F0E8CC" }}>
+                      {a.name}
+                    </p>
+                    <p className="text-xs truncate" style={{ color: "#F5F0E855" }}>{a.title}</p>
+                  </div>
+                  {a.id === selectedAgentId && (
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: a.color }} />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -423,32 +549,47 @@ export default function AgentStudio() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-5" style={{ scrollbarColor: "#C9A84C22 transparent" }}>
+      <div
+        className="flex-1 overflow-y-auto px-4 py-5"
+        style={{ scrollbarColor: "#C9A84C22 transparent" }}
+        onClick={() => setShowAgentPicker(false)}
+      >
         <div className="max-w-3xl mx-auto">
           {/* Welcome state */}
           {historyLoaded && messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
               <div
-                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold"
-                style={{ background: "linear-gradient(135deg, #C9A84C22, #C9A84C44)", border: "1px solid #C9A84C33" }}
+                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl"
+                style={{ background: `${agent.color}1A`, border: `1px solid ${agent.color}33` }}
               >
-                🎨
+                {agent.emoji}
               </div>
               <div>
-                <p className="text-lg font-semibold" style={{ color: "#C9A84C", fontFamily: "'Cormorant Garamond', serif" }}>
-                  Jordan Reed, Creative Director
+                <p className="text-lg font-semibold" style={{ color: agent.color, fontFamily: "'Cormorant Garamond', serif" }}>
+                  {agent.name}
                 </p>
-                <p className="text-sm mt-1" style={{ color: "#F5F0E855" }}>
-                  Ready to build the Golden Soul visual world.<br />
-                  Ask me to generate an image, write a brief, or plan your next campaign.
+                <p className="text-xs mt-0.5" style={{ color: "#F5F0E855" }}>{agent.title}</p>
+                <p className="text-sm mt-2" style={{ color: "#F5F0E855" }}>
+                  {agent.welcome}
                 </p>
               </div>
+
+              {agent.outputTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 justify-center max-w-sm">
+                  {agent.outputTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="px-2.5 py-1 rounded-lg text-xs"
+                      style={{ background: `${agent.color}15`, color: agent.color, border: `1px solid ${agent.color}30` }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2 justify-center mt-2">
-                {[
-                  "Generate my anchor shot — fedora, twist locs, golden hour",
-                  "Show me the Golden Soul color preset",
-                  "Create a caricature concept for social media",
-                ].map((suggestion) => (
+                {agent.suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => { setInput(suggestion); textareaRef.current?.focus(); }}
@@ -464,11 +605,23 @@ export default function AgentStudio() {
 
           {/* Message list */}
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} msg={msg} onImageClick={setLightboxUrl} />
+            <MessageBubble
+              key={msg.id}
+              msg={msg}
+              onImageClick={setLightboxUrl}
+              agentInitials={agent.initials}
+              agentColor={agent.color}
+            />
           ))}
 
           {/* Typing indicator */}
-          {loading && <TypingIndicator label={toolIndicator} />}
+          {loading && (
+            <TypingIndicator
+              label={toolIndicator}
+              agentInitials={agent.initials}
+              agentColor={agent.color}
+            />
+          )}
 
           {/* Error */}
           {error && (
@@ -496,7 +649,7 @@ export default function AgentStudio() {
               value={input}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
-              placeholder="Ask Jordan anything — generate images, plan campaigns, write briefs..."
+              placeholder={`Ask ${agent.name} anything...`}
               rows={1}
               disabled={loading}
               className="w-full resize-none bg-transparent text-sm outline-none rounded-2xl"

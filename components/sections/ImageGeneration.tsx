@@ -258,7 +258,7 @@ export default function ImageGeneration() {
       let data: { url?: string; error?: string };
       try { data = JSON.parse(text); } catch { throw new Error(res.ok ? "Upload failed" : `Upload error (${res.status}): ${text.slice(0, 120)}`); }
       if (data.error) throw new Error(data.error);
-      setImageUrl(data.url);
+      setImageUrl(data.url ?? "");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
       setImagePreview("");
