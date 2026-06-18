@@ -53,16 +53,6 @@ const INIT_TRACKS: Track[] = [
   { id:"a1", type:"audio", name:"Music",    muted:false, locked:false, visible:true },
   { id:"a2", type:"audio", name:"SFX",      muted:false, locked:false, visible:true },
 ];
-const INIT_CLIPS: Clip[] = [
-  { id:"c1", trackId:"v1", name:"Anchor Shot — Fedora.mp4", start:0,  duration:14, type:"video", src:"generated" },
-  { id:"c2", trackId:"v1", name:"Golden Hour Walk.mp4",     start:16, duration:12, type:"video", src:"generated" },
-  { id:"c3", trackId:"v1", name:"Studio Close-up.mp4",      start:30, duration:10, type:"video", src:"uploaded"  },
-  { id:"c4", trackId:"v2", name:"B-Roll — City.mp4",        start:4,  duration:8,  type:"video", src:"drive"     },
-  { id:"c5", trackId:"v2", name:"Concert Crowd.mp4",        start:18, duration:14, type:"video", src:"generated" },
-  { id:"c6", trackId:"a1", name:"Stay With Me.mp3",         start:0,  duration:42, type:"audio", src:"uploaded"  },
-  { id:"c7", trackId:"a2", name:"Impact Hit.wav",           start:4,  duration:1,  type:"audio", src:"uploaded"  },
-  { id:"c8", trackId:"a2", name:"Crowd Ambience.wav",       start:18, duration:8,  type:"audio", src:"uploaded"  },
-];
 const PLATFORMS = ["YouTube","YouTube Shorts","Instagram Feed","Instagram Reels","TikTok","Facebook","Vimeo","Custom"];
 const COLOR_PRESETS = ["Golden Soul","Midnight Fedora","Ivory Gospel","Golden Hour","Teal + Orange","Film Noir","Cinematic Blue","Warm Vintage","VHS Retro","Music Video"];
 const EFFECTS = [
@@ -421,9 +411,10 @@ function PreviewWindow({ playhead, setPlayhead, playing, setPlaying, narrative, 
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
+  storyText:string; setStoryText:(v:string)=>void;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -465,75 +456,81 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
         {activeTab==="color"     && <ColorTab/>}
         {activeTab==="audio"     && <AudioTab/>}
         {activeTab==="text"      && <TextTab/>}
-        {activeTab==="story"     && <StoryTab narrative={narrative} setNarrative={setNarrative}/>}
+        {activeTab==="story"     && <StoryTab narrative={narrative} setNarrative={setNarrative} storyText={storyText} setStoryText={setStoryText}/>}
       </div>
     </div>
   );
 }
 
 // ── Tab: Assets ────────────────────────────────────────────────────────────
+interface Asset { name:string; dur:string; type:"video"|"audio"|"image"; src:"uploaded"|"generated"|"drive"; url?:string; }
+
 function AssetsTab() {
   const [filter,setFilter]=useState("All");
-  const filters=["All","Video","Audio","Images","Generated","Uploaded","Drive"];
-  const assets=[
-    {name:"Anchor Shot — Fedora",  dur:"0:14", type:"video", src:"generated"},
-    {name:"Golden Hour Walk",      dur:"0:12", type:"video", src:"generated"},
-    {name:"Studio Close-up",       dur:"0:10", type:"video", src:"uploaded"},
-    {name:"B-Roll — City",         dur:"0:08", type:"video", src:"drive"},
-    {name:"Stay With Me.mp3",      dur:"3:42", type:"audio", src:"uploaded"},
-    {name:"Impact Hit.wav",        dur:"0:01", type:"audio", src:"uploaded"},
-    {name:"Anchor Shot Reference", dur:"1024px",type:"image", src:"drive"},
-  ];
+  const [assets,setAssets]=useState<Asset[]>([]);
+  const [q,setQ]=useState("");
+  const fileRef=useRef<HTMLInputElement>(null);
+  const filters=["All","Video","Audio","Images","Uploaded"];
+
+  const handleFiles=(e:React.ChangeEvent<HTMLInputElement>)=>{
+    const files=Array.from(e.target.files||[]);
+    const added:Asset[]=files.map(f=>({
+      name: f.name.replace(/\.[^.]+$/,""),
+      dur: f.type.startsWith("video")||f.type.startsWith("audio") ? "—" : `${(f.size/1024).toFixed(0)}KB`,
+      type: f.type.startsWith("video")?"video":f.type.startsWith("audio")?"audio":"image",
+      src:"uploaded",
+      url: URL.createObjectURL(f),
+    }));
+    setAssets(p=>[...p,...added]);
+    e.target.value="";
+  };
+
+  const visible=assets.filter(a=>{
+    const matchFilter=filter==="All"||(filter==="Video"&&a.type==="video")||(filter==="Audio"&&a.type==="audio")||(filter==="Images"&&a.type==="image")||(filter==="Uploaded"&&a.src==="uploaded");
+    const matchQ=a.name.toLowerCase().includes(q.toLowerCase());
+    return matchFilter&&matchQ;
+  });
+
   return (
     <div style={{display:"flex", flexDirection:"column", height:"100%", overflow:"hidden"}}>
       <div style={{padding:"8px 10px", borderBottom:`1px solid ${C.border}`}}>
-        <div style={{
-          display:"flex", gap:4, background:"#0D0D0D",
-          border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 8px",
-        }}>
+        <div style={{display:"flex", gap:4, background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 8px"}}>
           <Search size={12} color={C.muted}/>
-          <input placeholder="Search assets..." style={{
-            flex:1, background:"transparent", border:"none", outline:"none",
-            color:C.text, fontSize:11,
-          }}/>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search assets..." style={{flex:1, background:"transparent", border:"none", outline:"none", color:C.text, fontSize:11}}/>
         </div>
         <div style={{display:"flex", gap:4, marginTop:8, flexWrap:"wrap"}}>
           {filters.map(f=>(
             <button key={f} onClick={()=>setFilter(f)} style={{
               padding:"2px 7px", borderRadius:12, fontSize:10,
-              background: filter===f ? `${C.gold}22` : "transparent",
-              border:`1px solid ${filter===f ? C.gold+"44" : C.border}`,
-              color: filter===f ? C.gold : C.muted, cursor:"pointer",
+              background:filter===f?`${C.gold}22`:"transparent",
+              border:`1px solid ${filter===f?C.gold+"44":C.border}`,
+              color:filter===f?C.gold:C.muted, cursor:"pointer",
             }}>{f}</button>
           ))}
         </div>
       </div>
       <div style={{flex:1, overflowY:"auto", padding:"8px 10px"}}>
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6}}>
-          {assets.map((a,i)=>(
-            <div key={i} style={{
-              background:"#0D0D0D", border:`1px solid ${C.border}`,
-              borderRadius:8, overflow:"hidden", cursor:"pointer",
-            }}>
-              <div style={{
-                height:52, background:
-                  a.type==="video" ? C.dTeal :
-                  a.type==="audio" ? C.dBlue : C.dPurp,
-                display:"flex", alignItems:"center", justifyContent:"center",
-              }}>
-                {a.type==="video" ? <Film size={18} color={C.teal}/> :
-                 a.type==="audio" ? <Music size={18} color={C.gold}/> :
-                 <Eye size={18} color={`${C.gold}88`}/>}
+        {visible.length===0 ? (
+          <div style={{textAlign:"center", padding:"24px 0", color:C.muted, fontSize:10}}>
+            {assets.length===0 ? "No media yet. Upload files to get started." : "No assets match this filter."}
+          </div>
+        ) : (
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:6}}>
+            {visible.map((a,i)=>(
+              <div key={i} style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"pointer"}}>
+                <div style={{height:52, background:a.type==="video"?C.dTeal:a.type==="audio"?C.dBlue:C.dPurp, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                  {a.type==="video"?<Film size={18} color={C.teal}/>:a.type==="audio"?<Music size={18} color={C.gold}/>:<Eye size={18} color={`${C.gold}88`}/>}
+                </div>
+                <div style={{padding:"4px 6px"}}>
+                  <p style={{fontSize:9, color:C.text, margin:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{a.name}</p>
+                  <p style={{fontSize:9, color:C.muted, margin:0}}>{a.dur}</p>
+                </div>
               </div>
-              <div style={{padding:"4px 6px"}}>
-                <p style={{fontSize:9, color:C.text, margin:0, overflow:"hidden",
-                  whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{a.name}</p>
-                <p style={{fontSize:9, color:C.muted, margin:0}}>{a.dur}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <button style={{
+            ))}
+          </div>
+        )}
+        <input ref={fileRef} type="file" multiple accept="video/*,audio/*,image/*" style={{display:"none"}} onChange={handleFiles}/>
+        <button onClick={()=>fileRef.current?.click()} style={{
           width:"100%", marginTop:10, padding:"8px",
           borderRadius:8, border:`1px dashed ${C.border}`,
           background:"transparent", color:C.muted,
@@ -793,10 +790,15 @@ function TextTab() {
 }
 
 // ── Tab: Story (ProCut AI) ─────────────────────────────────────────────────
-function StoryTab({ narrative, setNarrative }: { narrative:boolean; setNarrative:(v:boolean)=>void }) {
+function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
+  narrative:boolean; setNarrative:(v:boolean)=>void;
+  storyText:string; setStoryText:(v:string)=>void;
+}) {
   const [msgs,setMsgs]=useState<Msg[]>([]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
+  const [editing,setEditing]=useState(false);
+  const [draft,setDraft]=useState("");
   const endRef=useRef<HTMLDivElement>(null);
 
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,loading]);
@@ -804,20 +806,21 @@ function StoryTab({ narrative, setNarrative }: { narrative:boolean; setNarrative
   const send=useCallback(async(text?:string)=>{
     const msg=(text||input).trim();
     if(!msg||loading) return;
+    const contextPrefix=storyText ? `[Story Context]\n${storyText}\n\n[Editor Question]\n` : "";
     setMsgs(p=>[...p,{id:`u${Date.now()}`,role:"user",content:msg}]);
     setInput("");
     setLoading(true);
     try {
       const res=await fetch("/api/procut/chat",{
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({message:msg}),
+        body:JSON.stringify({message:contextPrefix+msg}),
       });
       const data=await res.json();
       setMsgs(p=>[...p,{id:`a${Date.now()}`,role:"assistant",content:data.content||"No response."}]);
     } catch {
       setMsgs(p=>[...p,{id:`e${Date.now()}`,role:"assistant",content:"ProCut is unavailable."}]);
     } finally { setLoading(false); }
-  },[input,loading]);
+  },[input,loading,storyText]);
 
   const ACTIONS=[
     {e:"🎬",l:"Analyze My Edit",    p:"Analyze my current edit against the story context. Give me a full editorial notes report: pacing score, arc coverage, missing beats, overlong sections, and top recommendations."},
@@ -830,28 +833,56 @@ function StoryTab({ narrative, setNarrative }: { narrative:boolean; setNarrative
 
   return (
     <div style={{display:"flex", flexDirection:"column", height:"100%", overflow:"hidden"}}>
-      {/* Narrative banner */}
-      <div style={{
-        padding:"8px 10px", borderBottom:`1px solid ${C.border}`,
-        background: narrative?"#0F1A12":"#1A0F08", flexShrink:0,
-      }}>
-        {narrative ? (
-          <div style={{display:"flex", alignItems:"center", gap:6}}>
-            <div style={{width:7,height:7,borderRadius:"50%",background:"#4CAF50"}}/>
-            <span style={{fontSize:10, color:"#4CAF50"}}>Music Video · Triumphant — Context loaded</span>
+      {/* Story context banner */}
+      <div style={{padding:"8px 10px", borderBottom:`1px solid ${C.border}`, flexShrink:0}}>
+        {narrative && !editing ? (
+          <div style={{background:"#0F1A12", borderRadius:8, padding:"8px 10px"}}>
+            <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:4}}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:"#4CAF50", flexShrink:0}}/>
+              <span style={{fontSize:10, color:"#4CAF50", flex:1}}>Story context loaded</span>
+              <button onClick={()=>{setDraft(storyText);setEditing(true);}} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:9,padding:0}}>Edit</button>
+            </div>
+            <p style={{fontSize:9, color:`${C.muted}`, margin:0, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", lineHeight:1.5}}>{storyText}</p>
           </div>
         ) : (
-          <>
+          <div>
             <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:6}}>
-              <AlertTriangle size={11} color="#E08533"/>
-              <span style={{fontSize:10, color:"#E08533"}}>No story context loaded</span>
+              {narrative ? <BookOpen size={11} color={C.gold}/> : <AlertTriangle size={11} color="#E08533"/>}
+              <span style={{fontSize:10, color:narrative?C.gold:"#E08533"}}>{editing?"Edit story context":"No story context — paste your script or treatment"}</span>
             </div>
-            <button onClick={()=>setNarrative(true)} style={{
-              padding:"4px 10px", borderRadius:6, fontSize:10,
-              background:`${C.gold}22`, border:`1px solid ${C.gold}44`,
-              color:C.gold, cursor:"pointer",
-            }}>Load Narrative Context</button>
-          </>
+            <textarea
+              value={editing?draft:(storyText||"")}
+              onChange={e=>editing?setDraft(e.target.value):setStoryText(e.target.value)}
+              placeholder={"Paste your script, treatment, shot list, or story notes here.\n\nProCut will use this as editorial context for all AI suggestions."}
+              rows={5}
+              style={{
+                width:"100%", background:"#0D0D0D",
+                border:`1px solid ${C.border}`, borderRadius:6,
+                color:C.text, fontSize:10, padding:"6px 8px",
+                resize:"vertical", outline:"none", lineHeight:1.5,
+                fontFamily:"inherit", boxSizing:"border-box",
+              }}
+            />
+            <div style={{display:"flex", gap:5, marginTop:6}}>
+              {editing && (
+                <button onClick={()=>setEditing(false)} style={{
+                  flex:1, padding:"5px", borderRadius:6, fontSize:10,
+                  background:"transparent", border:`1px solid ${C.border}`,
+                  color:C.muted, cursor:"pointer",
+                }}>Cancel</button>
+              )}
+              <button onClick={()=>{
+                const text=editing?draft:storyText;
+                if(!text.trim()) return;
+                if(editing){setStoryText(draft);setEditing(false);}
+                setNarrative(true);
+              }} style={{
+                flex:2, padding:"5px", borderRadius:6, fontSize:10,
+                background:`${C.gold}22`, border:`1px solid ${C.gold}44`,
+                color:C.gold, cursor:"pointer",
+              }}>{editing?"Save Context":"Set as Story Context"}</button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -1293,8 +1324,9 @@ export default function ProCutEditor() {
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const [projectName,setProjectName]=useState("Jeff Dixon — Music Video");
   const [narrative,setNarrative]=useState(false);
+  const [storyText,setStoryText]=useState("");
   const [tracks]=useState<Track[]>(INIT_TRACKS);
-  const [clips]=useState<Clip[]>(INIT_CLIPS);
+  const [clips]=useState<Clip[]>([]);
   const duration=45;
 
   // Collapse sidebar when editor opens
@@ -1352,6 +1384,7 @@ export default function ProCutEditor() {
           activeTab={activeTab} setActiveTab={setActiveTab}
           selectedClip={selectedClip}
           narrative={narrative} setNarrative={setNarrative}
+          storyText={storyText} setStoryText={setStoryText}
         />
         <Timeline
           tracks={tracks} clips={clips}
