@@ -175,11 +175,20 @@ function TBtn({ icon:Icon, onClick, title }: {
 }
 
 // ── ZONE 1: Top Bar ────────────────────────────────────────────────────────
-function TopBar({ name, setName, onExport, onSettings }: {
+function TopBar({ name, setName, onExport, onSettings, onCut, onCopy, onPaste, onDelete, onUndo, onRedo, hasSelection, canPaste }: {
   name:string; setName:(v:string)=>void;
   onExport:()=>void; onSettings:()=>void;
+  onCut:()=>void; onCopy:()=>void; onPaste:()=>void; onDelete:()=>void;
+  onUndo:()=>void; onRedo:()=>void;
+  hasSelection:boolean; canPaste:boolean;
 }) {
   const [editing,setEditing]=useState(false);
+  const editBtnSty=(enabled:boolean):React.CSSProperties=>({
+    padding:"3px 8px", borderRadius:5, background:"transparent",
+    border:`1px solid transparent`,
+    color: enabled ? C.text : `${C.muted}55`,
+    cursor: enabled ? "pointer" : "default", fontSize:11,
+  });
   return (
     <div style={{
       gridColumn:"1/-1", gridRow:"1",
@@ -222,21 +231,21 @@ function TopBar({ name, setName, onExport, onSettings }: {
 
       {/* CENTER */}
       <div style={{display:"flex", alignItems:"center", gap:3}}>
-        {[{i:Undo2,l:"Undo"},{i:Redo2,l:"Redo"}].map(({i:I,l})=>(
-          <button key={l} title={l} style={{
-            display:"flex", alignItems:"center", padding:"4px 6px",
-            borderRadius:5, background:"transparent",
-            border:`1px solid transparent`, color:C.muted, cursor:"pointer",
-          }}><I size={13}/></button>
-        ))}
+        <button title="Undo (⌘Z)" onClick={onUndo} style={{
+          display:"flex", alignItems:"center", padding:"4px 6px",
+          borderRadius:5, background:"transparent",
+          border:"1px solid transparent", color:C.muted, cursor:"pointer",
+        }}><Undo2 size={13}/></button>
+        <button title="Redo (⌘⇧Z)" onClick={onRedo} style={{
+          display:"flex", alignItems:"center", padding:"4px 6px",
+          borderRadius:5, background:"transparent",
+          border:"1px solid transparent", color:C.muted, cursor:"pointer",
+        }}><Redo2 size={13}/></button>
         <div style={{width:1,height:16,background:C.border,margin:"0 2px"}}/>
-        {["Cut","Copy","Paste","Delete"].map(a=>(
-          <button key={a} style={{
-            padding:"3px 8px", borderRadius:5, background:"transparent",
-            border:`1px solid transparent`, color:C.muted,
-            cursor:"pointer", fontSize:11,
-          }}>{a}</button>
-        ))}
+        <button onClick={onCut}    disabled={!hasSelection} style={editBtnSty(hasSelection)}  title="Cut (⌘X)">Cut</button>
+        <button onClick={onCopy}   disabled={!hasSelection} style={editBtnSty(hasSelection)}  title="Copy (⌘C)">Copy</button>
+        <button onClick={onPaste}  disabled={!canPaste}     style={editBtnSty(canPaste)}       title="Paste (⌘V)">Paste</button>
+        <button onClick={onDelete} disabled={!hasSelection} style={editBtnSty(hasSelection)}  title="Delete (⌫)">Delete</button>
       </div>
 
       {/* RIGHT */}
@@ -543,12 +552,12 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
-    {id:"inspector", label:"Inspector"},
-    {id:"effects",   label:"Effects"},
+    {id:"inspector", label:"Clip"},
+    {id:"effects",   label:"FX"},
     {id:"color",     label:"Color"},
     {id:"audio",     label:"Audio"},
     {id:"text",      label:"Text"},
-    {id:"story",     label:"Story"},
+    {id:"story",     label:"AI"},
   ];
   return (
     <div style={{
@@ -1775,6 +1784,7 @@ export default function ProCutEditor() {
   const [showExport,setShowExport]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [selectedId,setSelectedId]=useState<string|null>(null);
+  const [clipboard,setClipboard]=useState<Clip|null>(null);
   const [projectName,setProjectName]=useState("Jeff Dixon — Music Video");
   const [narrative,setNarrative]=useState(false);
   const [storyText,setStoryText]=useState("");
@@ -1804,22 +1814,51 @@ export default function ProCutEditor() {
     return ()=>clearInterval(iv);
   },[playing,duration]);
 
+  const selectedClip=clips.find(c=>c.id===selectedId)||null;
+
+  const cutClip=useCallback(()=>{
+    if(!selectedId) return;
+    const clip=clips.find(c=>c.id===selectedId);
+    if(!clip) return;
+    setClipboard(clip);
+    setClips(p=>p.filter(c=>c.id!==selectedId));
+    setSelectedId(null);
+  },[selectedId,clips]);
+
+  const copyClip=useCallback(()=>{
+    const clip=clips.find(c=>c.id===selectedId);
+    if(clip) setClipboard(clip);
+  },[selectedId,clips]);
+
+  const pasteClip=useCallback(()=>{
+    if(!clipboard) return;
+    setClips(p=>[...p,{...clipboard,id:`c${Date.now()}`,start:playhead}]);
+  },[clipboard,playhead]);
+
+  const deleteClip=useCallback(()=>{
+    if(!selectedId) return;
+    setClips(p=>p.filter(c=>c.id!==selectedId));
+    setSelectedId(null);
+  },[selectedId]);
+
   // Keyboard shortcuts
   useEffect(()=>{
     const handler=(e:KeyboardEvent)=>{
       if(e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement) return;
       if(e.code==="Space"){ e.preventDefault(); setPlaying(p=>!p); }
-      if(e.code==="KeyV") setTool("select");
+      if(e.code==="KeyV"&&!e.metaKey&&!e.ctrlKey) setTool("select");
       if(e.code==="KeyB") setTool("razor");
       if(e.code==="KeyT") { setTool("text"); setActiveTab("text"); }
       if(e.code==="KeyG") { setTool("color"); setActiveTab("color"); }
       if(e.code==="KeyA") { setTool("audio"); setActiveTab("audio"); }
+      if((e.metaKey||e.ctrlKey)&&e.code==="KeyX"){ e.preventDefault(); cutClip(); }
+      if((e.metaKey||e.ctrlKey)&&e.code==="KeyC"){ e.preventDefault(); copyClip(); }
+      if((e.metaKey||e.ctrlKey)&&e.code==="KeyV"){ e.preventDefault(); pasteClip(); }
+      if(e.code==="Delete"||e.code==="Backspace"){ deleteClip(); }
     };
     window.addEventListener("keydown",handler);
     return ()=>window.removeEventListener("keydown",handler);
-  },[]);
-
-  const selectedClip=clips.find(c=>c.id===selectedId)||null;
+  },[cutClip,copyClip,pasteClip,deleteClip]);
 
   return (
     <>
@@ -1836,6 +1875,9 @@ export default function ProCutEditor() {
           name={projectName} setName={setProjectName}
           onExport={()=>setShowExport(true)}
           onSettings={()=>setShowSettings(true)}
+          onCut={cutClip} onCopy={copyClip} onPaste={pasteClip} onDelete={deleteClip}
+          onUndo={()=>{}} onRedo={()=>{}}
+          hasSelection={!!selectedId} canPaste={!!clipboard}
         />
         <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab}/>
         <PreviewWindow
