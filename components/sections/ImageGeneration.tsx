@@ -12,8 +12,8 @@ import { Upload, X, Link, Video } from "lucide-react";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const IMAGE_MODELS = [
-  { value: "google/nano-banana-pro", label: "Nano Banana Pro — Best for Jeff Photos ★", group: "PHOTOREALISTIC" },
-  { value: "google/nano-banana-2",   label: "Nano Banana 2 — Superior Face Accuracy",   group: "PHOTOREALISTIC" },
+  { value: "google/nano-banana-2",   label: "Nano Banana 2 — Best for Jeff Photos ★",   group: "PHOTOREALISTIC" },
+  { value: "google/nano-banana-pro", label: "Nano Banana Pro — (deprecated)",             group: "PHOTOREALISTIC" },
   { value: "wavespeed-ai/flux-dev",  label: "FLUX Dev — Photorealistic Precision",       group: "PHOTOREALISTIC" },
   { value: "bytedance/seedream-5",   label: "Seedream 5 — Cinematic Stills",             group: "PHOTOREALISTIC" },
   { value: "bytedance/seedream-4-5", label: "Seedream 4.5 — Reliable Fast",              group: "PHOTOREALISTIC" },
@@ -23,8 +23,8 @@ const IMAGE_MODELS = [
 ];
 
 const EDIT_MODELS = [
-  { value: "nano-banana-pro",  label: "Nano Banana Pro — Best for Jeff Photos ★", group: "GOOGLE" },
-  { value: "nano-banana-2",    label: "Nano Banana 2 — Superior Face Accuracy",   group: "GOOGLE" },
+  { value: "nano-banana-2",    label: "Nano Banana 2 — Best for Jeff Photos ★",   group: "GOOGLE" },
+  { value: "nano-banana-pro",  label: "Nano Banana Pro — (deprecated)",            group: "GOOGLE" },
   { value: "flux-kontext-max", label: "FLUX Kontext Max — Highest Quality Edit",  group: "FLUX KONTEXT" },
   { value: "flux-kontext-pro", label: "FLUX Kontext Pro — Fast & Precise",        group: "FLUX KONTEXT" },
   { value: "flux-kontext-dev", label: "FLUX Kontext Dev — Creative Edits",        group: "FLUX KONTEXT" },
@@ -218,7 +218,7 @@ export default function ImageGeneration() {
   const [mode, setMode] = useState<Mode>("generate");
 
   // Generate state
-  const [model, setModel]               = useState("google/nano-banana-pro");
+  const [model, setModel]               = useState("google/nano-banana-2");
   const [prompt, setPrompt]             = useState("");
   const [styleIntensity, setStyleIntensity] = useState(50);
   const [lighting, setLighting]         = useState("golden-hour-natural");
@@ -226,7 +226,7 @@ export default function ImageGeneration() {
   const [variations, setVariations]     = useState(1);
 
   // Edit state
-  const [editModel, setEditModel]       = useState("nano-banana-pro");
+  const [editModel, setEditModel]       = useState("nano-banana-2");
   const [editPrompt, setEditPrompt]     = useState("");
   const [editStrength, setEditStrength] = useState(80);
 
