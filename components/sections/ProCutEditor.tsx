@@ -39,6 +39,7 @@ interface Clip {
   start: number; duration: number;
   type: "video"|"audio"|"text";
   src: "generated"|"uploaded"|"drive";
+  url?: string;
 }
 interface Track {
   id: string; type: "video"|"audio"|"text";
@@ -311,36 +312,146 @@ function ToolsPanel({ tool, setTool, onTab }: {
 }
 
 // ── ZONE 3: Preview Window ─────────────────────────────────────────────────
-function PreviewWindow({ playhead, setPlayhead, playing, setPlaying, narrative, duration }: {
+function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration }: {
+  clips:Clip[];
   playhead:number; setPlayhead:(t:number)=>void;
   playing:boolean; setPlaying:(v:boolean)=>void;
   narrative:boolean; duration:number;
 }) {
   const wRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const loadedVideoUrl = useRef<string>("");
+  const loadedAudioUrl = useRef<string>("");
+
+  // Active clips at current playhead position
+  const activeVideoClip = clips
+    .filter(c => c.type==="video" && !!c.url && c.start<=playhead && c.start+c.duration>playhead)
+    .at(-1) ?? null;
+  const activeAudioClip = clips
+    .filter(c => c.type==="audio" && !!c.url && c.start<=playhead && c.start+c.duration>playhead)
+    .at(-1) ?? null;
+
+  // Sync video element with timeline
+  useEffect(()=>{
+    const vid = videoRef.current;
+    if(!vid) return;
+    const url = activeVideoClip?.url ?? "";
+    const clipStart = activeVideoClip?.start ?? 0;
+    const target = Math.max(0, playhead - clipStart);
+
+    // Source changed — reload
+    if(loadedVideoUrl.current !== url) {
+      loadedVideoUrl.current = url;
+      vid.pause();
+      if(url) {
+        vid.src = url;
+        vid.addEventListener("loadedmetadata", ()=>{
+          vid.currentTime = target;
+          if(playing) vid.play().catch(()=>{});
+        }, {once:true});
+        vid.load();
+      } else {
+        vid.removeAttribute("src");
+        vid.load();
+      }
+      return;
+    }
+    if(!url) return;
+
+    // Play / pause / scrub
+    if(playing) {
+      if(vid.paused){ vid.currentTime = target; vid.play().catch(()=>{}); }
+      // else: video is already playing naturally — don't interfere
+    } else {
+      if(!vid.paused) vid.pause();
+      vid.currentTime = target; // scrubbing while paused
+    }
+  },[playing, playhead, activeVideoClip]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync audio-only clips
+  useEffect(()=>{
+    const aud = audioRef.current;
+    if(!aud) return;
+    const url = activeAudioClip?.url ?? "";
+    const clipStart = activeAudioClip?.start ?? 0;
+    const target = Math.max(0, playhead - clipStart);
+
+    if(loadedAudioUrl.current !== url) {
+      loadedAudioUrl.current = url;
+      aud.pause();
+      if(url) {
+        aud.src = url;
+        aud.addEventListener("loadedmetadata", ()=>{
+          aud.currentTime = target;
+          if(playing) aud.play().catch(()=>{});
+        }, {once:true});
+        aud.load();
+      } else {
+        aud.removeAttribute("src");
+        aud.load();
+      }
+      return;
+    }
+    if(!url) return;
+
+    if(playing) {
+      if(aud.paused){ aud.currentTime = target; aud.play().catch(()=>{}); }
+    } else {
+      if(!aud.paused) aud.pause();
+      aud.currentTime = target;
+    }
+  },[playing, playhead, activeAudioClip]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleWave=(e:React.MouseEvent)=>{
     if(!wRef.current) return;
     const r=wRef.current.getBoundingClientRect();
     setPlayhead(Math.max(0,Math.min(duration, ((e.clientX-r.left)/r.width)*duration)));
   };
+
+  const hasVideo = !!activeVideoClip?.url;
+
   return (
     <div style={{gridColumn:"2", gridRow:"2", background:"#000", display:"flex", flexDirection:"column"}}>
       {/* Canvas */}
-      <div style={{flex:1, background:"#050505", position:"relative"}}>
-        <div style={{
-          position:"absolute", inset:0, display:"flex",
-          alignItems:"center", justifyContent:"center",
-        }}>
+      <div style={{flex:1, background:"#050505", position:"relative", overflow:"hidden"}}>
+        {/* Audio element for audio-only clips */}
+        <audio ref={audioRef} preload="auto" style={{display:"none"}}/>
+        {/* Video element — always mounted, shown when active video clip exists */}
+        <video ref={videoRef} preload="auto" playsInline
+          style={{
+            position:"absolute", inset:0, width:"100%", height:"100%",
+            objectFit:"contain", background:"#000",
+            display: hasVideo ? "block" : "none",
+          }}
+        />
+        {/* Placeholder when no video clip at playhead */}
+        {!hasVideo && (
           <div style={{
-            width:"72%", maxWidth:600, aspectRatio:"16/9",
-            background:"#0E0E0E", border:`1px solid ${C.border}`,
-            borderRadius:4, display:"flex", flexDirection:"column",
-            alignItems:"center", justifyContent:"center", gap:8,
+            position:"absolute", inset:0, display:"flex",
+            alignItems:"center", justifyContent:"center",
           }}>
-            <Film size={36} color={C.border}/>
-            <span style={{fontSize:11, color:C.muted}}>Preview Canvas</span>
-            <span style={{fontSize:10, color:`${C.muted}66`}}>Import clips to begin</span>
+            <div style={{
+              width:"72%", maxWidth:600, aspectRatio:"16/9",
+              background:"#0E0E0E", border:`1px solid ${C.border}`,
+              borderRadius:4, display:"flex", flexDirection:"column",
+              alignItems:"center", justifyContent:"center", gap:8,
+            }}>
+              {activeAudioClip ? (
+                <>
+                  <Music2 size={36} color={C.gold}/>
+                  <span style={{fontSize:11, color:C.muted}}>Audio: {activeAudioClip.name}</span>
+                </>
+              ) : (
+                <>
+                  <Film size={36} color={C.border}/>
+                  <span style={{fontSize:11, color:C.muted}}>Preview Canvas</span>
+                  <span style={{fontSize:10, color:`${C.muted}66`}}>Drag a clip to the timeline to begin</span>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
         {/* Narrative badge */}
         <div style={{
           position:"absolute", top:10, left:10,
@@ -1215,7 +1326,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     setClips(p=>[...p,{
       id:`c${Date.now()}`,trackId:track.id,name:asset.name,
       start:secs,duration:asset.type==="audio"?30:10,
-      type:clipType,src:asset.src as Clip["src"],
+      type:clipType,src:asset.src as Clip["src"],url:asset.url,
     }]);
   };
 
@@ -1250,7 +1361,10 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
       e.preventDefault();e.stopPropagation();
       setSelectedId(clip.id);
       setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
+    } else if(tool==="hand"||tool==="zoom") {
+      // let event bubble to handleLaneMouseDown for pan / zoom
     } else {
+      e.stopPropagation();
       setSelectedId(clip.id===selectedId?null:clip.id);
     }
   };
@@ -1397,6 +1511,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                   onDragEnter={e=>{ e.preventDefault(); setDragOver(t.id); }}
                   onDragLeave={()=>setDragOver(null)}
                   onDrop={e=>handleDrop(e,t)}
+                  onMouseDown={e=>{ if(tool==="select"&&e.target===e.currentTarget) setSelectedId(null); }}
                   style={{
                     height:h, borderBottom:`1px solid ${C.border}`,
                     position:"relative",
@@ -1706,6 +1821,7 @@ export default function ProCutEditor() {
         />
         <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab}/>
         <PreviewWindow
+          clips={clips}
           playhead={playhead} setPlayhead={setPlayhead}
           playing={playing} setPlaying={setPlaying}
           narrative={narrative} duration={duration}
