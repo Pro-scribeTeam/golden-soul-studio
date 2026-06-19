@@ -40,6 +40,7 @@ interface Clip {
   type: "video"|"audio"|"text";
   src: "generated"|"uploaded"|"drive";
   url?: string;
+  inPoint?: number; // source in-point seconds (for razor splits)
 }
 interface Track {
   id: string; type: "video"|"audio"|"text";
@@ -338,7 +339,8 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     if(!vid) return;
     const url = activeVideoClip?.url ?? "";
     const clipStart = activeVideoClip?.start ?? 0;
-    const target = Math.max(0, playhead - clipStart);
+    const inPoint = activeVideoClip?.inPoint ?? 0;
+    const target = Math.max(0, inPoint + (playhead - clipStart));
 
     // Source changed — reload
     if(loadedVideoUrl.current !== url) {
@@ -375,7 +377,8 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     if(!aud) return;
     const url = activeAudioClip?.url ?? "";
     const clipStart = activeAudioClip?.start ?? 0;
-    const target = Math.max(0, playhead - clipStart);
+    const inPoint = activeAudioClip?.inPoint ?? 0;
+    const target = Math.max(0, inPoint + (playhead - clipStart));
 
     if(loadedAudioUrl.current !== url) {
       loadedAudioUrl.current = url;
@@ -1323,11 +1326,22 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     const rect=e.currentTarget.getBoundingClientRect();
     const secs=Math.max(0,Math.round(((e.clientX-rect.left)/zoom)*10)/10);
     const clipType:Clip["type"]=asset.type==="audio"?"audio":"video";
+    const clipId=`c${Date.now()}`;
     setClips(p=>[...p,{
-      id:`c${Date.now()}`,trackId:track.id,name:asset.name,
+      id:clipId,trackId:track.id,name:asset.name,
       start:secs,duration:asset.type==="audio"?30:10,
       type:clipType,src:asset.src as Clip["src"],url:asset.url,
     }]);
+    // Read actual media duration and update clip
+    if(asset.url&&(asset.type==="video"||asset.type==="audio")){
+      const el=document.createElement(asset.type==="audio"?"audio":"video");
+      el.src=asset.url;
+      el.addEventListener("loadedmetadata",()=>{
+        const dur=isFinite(el.duration)&&el.duration>0?Math.ceil(el.duration):10;
+        setClips(p=>p.map(c=>c.id===clipId?{...c,duration:dur}:c));
+      },{once:true});
+      el.load();
+    }
   };
 
   // Clip interaction based on active tool
@@ -1347,7 +1361,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         setClips(p=>[
           ...p.filter(c=>c.id!==clip.id),
           {...clip,id:`${clip.id}_a`,duration:durA},
-          {...clip,id:`${clip.id}_b`,start:splitAt,duration:durB},
+          {...clip,id:`${clip.id}_b`,start:splitAt,duration:durB,inPoint:(clip.inPoint??0)+durA},
         ]);
         setSelectedId(null);
       }
@@ -1372,9 +1386,12 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   // Lane background click for zoom/hand
   const handleLaneMouseDown=(e:React.MouseEvent)=>{
     if(tool==="hand"&&scrollRef.current){
+      // Don't intercept ruler mousedown — ruler uses onClick for playhead positioning
+      if(rulerRef.current?.contains(e.target as Node)) return;
       e.preventDefault();
       setPanDrag({startX:e.clientX,scrollX:scrollRef.current.scrollLeft});
     } else if(tool==="zoom"){
+      if(rulerRef.current?.contains(e.target as Node)) return;
       const newZ=e.shiftKey?Math.max(20,Math.floor(zoom*0.75)):Math.min(250,Math.floor(zoom*1.4));
       setZoom(newZ);
     }
@@ -1383,7 +1400,8 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const clickRuler=(e:React.MouseEvent)=>{
     if(!rulerRef.current) return;
     const r=rulerRef.current.getBoundingClientRect();
-    setPlayhead(Math.max(0,Math.min(duration,(e.clientX-r.left)/zoom)));
+    const scrollX=scrollRef.current?.scrollLeft??0;
+    setPlayhead(Math.max(0,Math.min(duration,(e.clientX-r.left+scrollX)/zoom)));
   };
 
   const laneCursor: React.CSSProperties["cursor"]=
