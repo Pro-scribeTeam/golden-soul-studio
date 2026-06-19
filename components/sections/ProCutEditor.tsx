@@ -95,6 +95,16 @@ function sBtnSty(active=false): React.CSSProperties { return {
   cursor:"pointer", fontSize:11,
 };}
 
+function detectFileType(f: File): "video"|"audio"|"image" {
+  if (f.type.startsWith("video")) return "video";
+  if (f.type.startsWith("audio")) return "audio";
+  if (f.type.startsWith("image")) return "image";
+  const ext = (f.name.split(".").pop() || "").toLowerCase();
+  if (["mp4","mov","avi","mkv","webm","m4v","mts","ts","wmv","flv","ogv","3gp","m2ts"].includes(ext)) return "video";
+  if (["mp3","wav","aac","flac","ogg","m4a","opus","wma","aiff","alac"].includes(ext)) return "audio";
+  return "image";
+}
+
 // ── Spinner ────────────────────────────────────────────────────────────────
 function Spinner() {
   return (
@@ -411,10 +421,11 @@ function PreviewWindow({ playhead, setPlayhead, playing, setPlaying, narrative, 
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
   storyText:string; setStoryText:(v:string)=>void;
+  assets:Asset[]; setAssets:React.Dispatch<React.SetStateAction<Asset[]>>;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -450,7 +461,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
 
       {/* Tab content */}
       <div style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column"}}>
-        {activeTab==="assets"    && <AssetsTab/>}
+        {activeTab==="assets"    && <AssetsTab assets={assets} setAssets={setAssets}/>}
         {activeTab==="inspector" && <InspectorTab clip={selectedClip}/>}
         {activeTab==="effects"   && <EffectsTab/>}
         {activeTab==="color"     && <ColorTab/>}
@@ -470,10 +481,9 @@ function sectionToType(s:string): "video"|"image" {
   return (s==="video"||s==="motion"||s==="lipsync") ? "video" : "image";
 }
 
-function AssetsTab() {
+function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Dispatch<React.SetStateAction<Asset[]>>; }) {
   const [view,setView]=useState<"local"|"history">("local");
   const [filter,setFilter]=useState("All");
-  const [assets,setAssets]=useState<Asset[]>([]);
   const [q,setQ]=useState("");
   const [history,setHistory]=useState<HistoryItem[]>([]);
   const [histLoading,setHistLoading]=useState(false);
@@ -494,13 +504,15 @@ function AssetsTab() {
 
   const handleFiles=(e:React.ChangeEvent<HTMLInputElement>)=>{
     const files=Array.from(e.target.files||[]);
-    const newOnes:Asset[]=files.map(f=>({
-      name: f.name.replace(/\.[^.]+$/,""),
-      dur: f.type.startsWith("video")||f.type.startsWith("audio") ? "—" : `${(f.size/1024).toFixed(0)}KB`,
-      type: f.type.startsWith("video")?"video":f.type.startsWith("audio")?"audio":"image",
-      src:"uploaded",
-      url: URL.createObjectURL(f),
-    }));
+    const newOnes:Asset[]=files.map(f=>{
+      const type=detectFileType(f);
+      return {
+        name: f.name.replace(/\.[^.]+$/,""),
+        dur: type==="image"?`${(f.size/1024).toFixed(0)}KB`:"—",
+        type, src:"uploaded",
+        url: URL.createObjectURL(f),
+      };
+    });
     setAssets(p=>[...p,...newOnes]);
     e.target.value="";
   };
@@ -569,7 +581,7 @@ function AssetsTab() {
                       e.dataTransfer.effectAllowed="copy";
                       e.dataTransfer.setData("application/procut-asset", JSON.stringify({name:a.name,type:a.type,src:a.src,url:a.url}));
                     }}
-                    style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"grab"}}>
+                    style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"grab", position:"relative"}}>
                     <div style={{height:52, background:a.type==="video"?C.dTeal:a.type==="audio"?C.dBlue:C.dPurp, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative"}}>
                       {a.thumb ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -577,15 +589,21 @@ function AssetsTab() {
                       ) : a.type==="video"?<Film size={18} color={C.teal}/>:a.type==="audio"?<Music size={18} color={C.gold}/>:<Eye size={18} color={`${C.gold}88`}/>}
                       <div style={{position:"absolute",bottom:2,right:3,fontSize:7,color:C.gold,background:"#000A",padding:"1px 3px",borderRadius:2}}>{a.src}</div>
                     </div>
-                    <div style={{padding:"4px 6px"}}>
-                      <p style={{fontSize:9, color:C.text, margin:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{a.name}</p>
-                      <p style={{fontSize:9, color:C.muted, margin:0}}>{a.dur}</p>
+                    <div style={{padding:"4px 6px", display:"flex", alignItems:"center", gap:3}}>
+                      <div style={{flex:1, minWidth:0}}>
+                        <p style={{fontSize:9, color:C.text, margin:0, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{a.name}</p>
+                        <p style={{fontSize:9, color:C.muted, margin:0}}>{a.dur}</p>
+                      </div>
+                      <button onClick={e=>{e.stopPropagation();setAssets(p=>p.filter((_,j)=>j!==i));}}
+                        style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:0,flexShrink:0,lineHeight:1}}>
+                        <X size={10}/>
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-            <input ref={fileRef} type="file" multiple accept="video/*,audio/*,image/*" style={{display:"none"}} onChange={handleFiles}/>
+            <input ref={fileRef} type="file" multiple accept="video/*,audio/*,image/*,.mp4,.mov,.avi,.mkv,.webm,.m4v,.mts,.wmv,.mp3,.wav,.aac,.flac,.m4a,.ogg,.heic" style={{display:"none"}} onChange={handleFiles}/>
             <button onClick={()=>fileRef.current?.click()} style={{
               width:"100%", marginTop:10, padding:"8px",
               borderRadius:8, border:`1px dashed ${C.border}`,
@@ -1085,37 +1103,110 @@ function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
 // ── ZONE 5: Timeline ───────────────────────────────────────────────────────
 const LABEL_W=160, TRACK_H=58, AUDIO_H=46;
 
-function Timeline({ tracks, clips, setClips, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration }: {
+function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration }: {
   tracks:Track[]; clips:Clip[]; setClips:React.Dispatch<React.SetStateAction<Clip[]>>;
+  tool:Tool;
   playhead:number; setPlayhead:(t:number)=>void;
   zoom:number; setZoom:(z:number)=>void;
   selectedId:string|null; setSelectedId:(id:string|null)=>void;
   duration:number;
 }) {
   const rulerRef=useRef<HTMLDivElement>(null);
+  const scrollRef=useRef<HTMLDivElement>(null);
   const [dragOver,setDragOver]=useState<string|null>(null);
+  const [moveDrag,setMoveDrag]=useState<{clipId:string;startX:number;origStart:number}|null>(null);
+  const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
 
+  // Select tool — move clip
+  useEffect(()=>{
+    if(!moveDrag) return;
+    const move=(e:MouseEvent)=>{
+      const delta=(e.clientX-moveDrag.startX)/zoom;
+      setClips(p=>p.map(c=>c.id===moveDrag.clipId
+        ?{...c,start:Math.max(0,Math.round((moveDrag.origStart+delta)*10)/10)}:c));
+    };
+    const up=()=>setMoveDrag(null);
+    window.addEventListener("mousemove",move);
+    window.addEventListener("mouseup",up);
+    return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+  },[moveDrag,zoom,setClips]);
+
+  // Hand tool — pan scroll
+  useEffect(()=>{
+    if(!panDrag) return;
+    const move=(e:MouseEvent)=>{
+      if(scrollRef.current) scrollRef.current.scrollLeft=panDrag.scrollX-(e.clientX-panDrag.startX);
+    };
+    const up=()=>setPanDrag(null);
+    window.addEventListener("mousemove",move);
+    window.addEventListener("mouseup",up);
+    return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+  },[panDrag]);
+
+  // Drop from assets panel
   const handleDrop=(e:React.DragEvent<HTMLDivElement>, track:Track)=>{
     e.preventDefault();
     setDragOver(null);
     const raw=e.dataTransfer.getData("application/procut-asset");
     if(!raw) return;
-    let asset:{name:string; type:string; src:string; url?:string};
-    try { asset=JSON.parse(raw); } catch { return; }
+    let asset:{name:string;type:string;src:string;url?:string};
+    try{asset=JSON.parse(raw);}catch{return;}
     const rect=e.currentTarget.getBoundingClientRect();
-    const secs=Math.max(0, Math.round(((e.clientX-rect.left)/zoom)*10)/10);
-    const clipType: Clip["type"] = asset.type==="audio" ? "audio" : "video";
-    const defaultDur = asset.type==="audio" ? 30 : 10;
+    const secs=Math.max(0,Math.round(((e.clientX-rect.left)/zoom)*10)/10);
+    const clipType:Clip["type"]=asset.type==="audio"?"audio":"video";
     setClips(p=>[...p,{
-      id:`c${Date.now()}`,
-      trackId: track.id,
-      name: asset.name,
-      start: secs,
-      duration: defaultDur,
-      type: clipType,
-      src: asset.src as Clip["src"],
+      id:`c${Date.now()}`,trackId:track.id,name:asset.name,
+      start:secs,duration:asset.type==="audio"?30:10,
+      type:clipType,src:asset.src as Clip["src"],
     }]);
+  };
+
+  // Clip interaction based on active tool
+  const handleClipInteract=(e:React.MouseEvent,clip:Clip)=>{
+    if(tool==="select"){
+      e.preventDefault();e.stopPropagation();
+      setSelectedId(clip.id);
+      setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
+    } else if(tool==="razor"){
+      e.preventDefault();e.stopPropagation();
+      const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
+      const relSecs=(e.clientX-rect.left)/zoom;
+      const durA=relSecs;
+      const durB=clip.duration-durA;
+      if(durA>0.1&&durB>0.1){
+        const splitAt=clip.start+relSecs;
+        setClips(p=>[
+          ...p.filter(c=>c.id!==clip.id),
+          {...clip,id:`${clip.id}_a`,duration:durA},
+          {...clip,id:`${clip.id}_b`,start:splitAt,duration:durB},
+        ]);
+        setSelectedId(null);
+      }
+    } else if(tool==="slip"){
+      // Slip: shift in-point without moving clip on timeline — requires source duration
+      // Visual only for now; selects the clip
+      e.stopPropagation();
+      setSelectedId(clip.id);
+    } else if(tool==="slide"){
+      // Slide: move clip and ripple neighbors
+      e.preventDefault();e.stopPropagation();
+      setSelectedId(clip.id);
+      setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
+    } else {
+      setSelectedId(clip.id===selectedId?null:clip.id);
+    }
+  };
+
+  // Lane background click for zoom/hand
+  const handleLaneMouseDown=(e:React.MouseEvent)=>{
+    if(tool==="hand"&&scrollRef.current){
+      e.preventDefault();
+      setPanDrag({startX:e.clientX,scrollX:scrollRef.current.scrollLeft});
+    } else if(tool==="zoom"){
+      const newZ=e.shiftKey?Math.max(20,Math.floor(zoom*0.75)):Math.min(250,Math.floor(zoom*1.4));
+      setZoom(newZ);
+    }
   };
 
   const clickRuler=(e:React.MouseEvent)=>{
@@ -1123,6 +1214,19 @@ function Timeline({ tracks, clips, setClips, playhead, setPlayhead, zoom, setZoo
     const r=rulerRef.current.getBoundingClientRect();
     setPlayhead(Math.max(0,Math.min(duration,(e.clientX-r.left)/zoom)));
   };
+
+  const laneCursor: React.CSSProperties["cursor"]=
+    tool==="razor"?"crosshair":
+    tool==="hand"?(panDrag?"grabbing":"grab"):
+    tool==="zoom"?"zoom-in":
+    "default";
+
+  const clipCursor: React.CSSProperties["cursor"]=
+    tool==="razor"?"crosshair":
+    tool==="hand"?"grab":
+    tool==="select"||tool==="slide"?(moveDrag?"grabbing":"grab"):
+    tool==="slip"?"ew-resize":
+    "pointer";
 
   const ticks=Array.from({length:Math.ceil(duration)+1},(_,i)=>i);
 
@@ -1191,7 +1295,7 @@ function Timeline({ tracks, clips, setClips, playhead, setPlayhead, zoom, setZoo
         </div>
 
         {/* Lane scroll area */}
-        <div style={{flex:1, overflowX:"auto", overflowY:"auto", position:"relative"}}>
+        <div ref={scrollRef} onMouseDown={handleLaneMouseDown} style={{flex:1, overflowX:"auto", overflowY:"auto", position:"relative", cursor:laneCursor}}>
           <div style={{minWidth:totalPx, position:"relative"}}>
             {/* Ruler */}
             <div ref={rulerRef} onClick={clickRuler} style={{
@@ -1247,14 +1351,14 @@ function Timeline({ tracks, clips, setClips, playhead, setPlayhead, zoom, setZoo
                   {tc.map(clip=>{
                     const sel=clip.id===selectedId;
                     return (
-                      <div key={clip.id} onClick={()=>setSelectedId(sel?null:clip.id)}
+                      <div key={clip.id} onMouseDown={e=>handleClipInteract(e,clip)}
                         style={{
                           position:"absolute",
-                          left:clip.start*zoom+1, width:clip.duration*zoom-3,
+                          left:clip.start*zoom+1, width:Math.max(4,clip.duration*zoom-3),
                           top:4, bottom:4, borderRadius:5,
                           background:clipBg(clip),
                           border:`1px solid ${sel?C.gold:C.border+"88"}`,
-                          cursor:"pointer", overflow:"hidden",
+                          cursor:clipCursor, overflow:"hidden",
                           userSelect:"none",
                         }}>
                         {sel && <div style={{
@@ -1484,12 +1588,22 @@ export default function ProCutEditor() {
   const [projectName,setProjectName]=useState("Jeff Dixon — Music Video");
   const [narrative,setNarrative]=useState(false);
   const [storyText,setStoryText]=useState("");
+  const [assets,setAssets]=useState<Asset[]>(()=>{
+    if(typeof window==="undefined") return [];
+    try{ return JSON.parse(localStorage.getItem("procut-assets")||"[]"); } catch{ return []; }
+  });
   const [tracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
 
   // Collapse sidebar when editor opens
   useEffect(()=>{ setCollapsed(true); },[setCollapsed]);
+
+  // Persist non-blob assets to localStorage
+  useEffect(()=>{
+    const p=assets.filter(a=>!a.url?.startsWith("blob:"));
+    localStorage.setItem("procut-assets",JSON.stringify(p));
+  },[assets]);
 
   // Playback tick
   useEffect(()=>{
@@ -1544,9 +1658,11 @@ export default function ProCutEditor() {
           selectedClip={selectedClip}
           narrative={narrative} setNarrative={setNarrative}
           storyText={storyText} setStoryText={setStoryText}
+          assets={assets} setAssets={setAssets}
         />
         <Timeline
           tracks={tracks} clips={clips} setClips={setClips}
+          tool={tool}
           playhead={playhead} setPlayhead={setPlayhead}
           zoom={zoom} setZoom={setZoom}
           selectedId={selectedId} setSelectedId={setSelectedId}
