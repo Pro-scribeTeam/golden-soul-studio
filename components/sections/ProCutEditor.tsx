@@ -276,9 +276,25 @@ function TopBar({ name, setName, onExport, onSettings, onCut, onCopy, onPaste, o
   );
 }
 
+const TOOL_HINTS: Record<Tool,string> = {
+  select:      "SELECT — click to select a clip · drag to move it",
+  razor:       "RAZOR — click any clip to split it at that point",
+  slip:        "SLIP — click + drag a clip to shift its source in-point",
+  slide:       "SLIDE — drag a clip to move it on the timeline",
+  import:      "IMPORT — file dialog opened · drag files onto tracks too",
+  audio:       "AUDIO — adjust volume, mute, EQ & effects in the Audio tab →",
+  text:        "TEXT — click any timeline track to place a text overlay",
+  color:       "COLOR — select a clip, then apply a grade in the Color tab →",
+  effects:     "EFFECTS — select a clip, then apply FX in the FX tab →",
+  transitions: "TRANSITIONS — browse effects in the FX tab →",
+  motion:      "MOTION — animate clip properties in the FX tab →",
+  zoom:        "ZOOM — click timeline to zoom in · Shift+click to zoom out",
+  hand:        "PAN — click + drag on the timeline to scroll",
+};
+
 // ── ZONE 2: Tools Panel ────────────────────────────────────────────────────
-function ToolsPanel({ tool, setTool, onTab }: {
-  tool:Tool; setTool:(t:Tool)=>void; onTab:(t:ITab)=>void;
+function ToolsPanel({ tool, setTool, onTab, onImport }: {
+  tool:Tool; setTool:(t:Tool)=>void; onTab:(t:ITab)=>void; onImport:()=>void;
 }) {
   const groups: Array<Array<{id:Tool; icon:React.ElementType; label:string; kbd:string; tab?:ITab}>> = [
     [
@@ -314,7 +330,11 @@ function ToolsPanel({ tool, setTool, onTab }: {
           {grp.map(t=>(
             <ToolBtn key={t.id} icon={t.icon} label={t.label} kbd={t.kbd}
               active={tool===t.id}
-              onClick={()=>{ setTool(t.id); if(t.tab) onTab(t.tab); }}
+              onClick={()=>{
+                setTool(t.id);
+                if(t.tab) onTab(t.tab);
+                if(t.id==="import") onImport();
+              }}
             />
           ))}
         </React.Fragment>
@@ -1566,6 +1586,15 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         <button style={sBtnSty()}>Snap</button>
       </div>
 
+      {/* Tool hint bar */}
+      <div style={{
+        height:22, background:`${C.gold}0A`, borderBottom:`1px solid ${C.gold}22`,
+        display:"flex", alignItems:"center", padding:"0 12px", flexShrink:0,
+      }}>
+        <span style={{fontSize:10, color:C.gold, fontWeight:600, marginRight:6}}>▶</span>
+        <span style={{fontSize:10, color:`${C.gold}CC`}}>{TOOL_HINTS[tool]}</span>
+      </div>
+
       {/* Body */}
       <div style={{flex:1, display:"flex", overflow:"hidden"}}>
         {/* Track labels */}
@@ -1652,7 +1681,15 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                   onDragEnter={e=>{ e.preventDefault(); setDragOver(t.id); }}
                   onDragLeave={()=>setDragOver(null)}
                   onDrop={e=>handleDrop(e,t)}
-                  onMouseDown={e=>{ if(tool==="select"&&e.target===e.currentTarget) setSelectedId(null); }}
+                  onMouseDown={e=>{
+                    if(tool==="select"&&e.target===e.currentTarget) setSelectedId(null);
+                    if(tool==="text"&&e.target===e.currentTarget){
+                      const scrollX=scrollRef.current?.scrollLeft??0;
+                      const r=scrollRef.current?.getBoundingClientRect();
+                      const startSecs=r?Math.max(0,(e.clientX-r.left+scrollX)/zoom):playhead;
+                      setClips(p=>[...p,{id:`c${Date.now()}`,trackId:t.id,name:"Text Overlay",start:Math.round(startSecs*10)/10,duration:5,type:"text",src:"uploaded"}]);
+                    }
+                  }}
                   style={{
                     height:h, borderBottom:`1px solid ${C.border}`,
                     position:"relative",
@@ -1908,6 +1945,7 @@ export default function ProCutEditor() {
     if(typeof window==="undefined") return [];
     try{ return JSON.parse(localStorage.getItem("procut-assets")||"[]"); } catch{ return []; }
   });
+  const importFileRef=useRef<HTMLInputElement>(null);
   const [tracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
@@ -2015,9 +2053,23 @@ export default function ProCutEditor() {
     return ()=>window.removeEventListener("keydown",handler);
   },[cutClip,copyClip,pasteClip,deleteClip,undo,redo]);
 
+  const handleImportFiles=(e:React.ChangeEvent<HTMLInputElement>)=>{
+    const files=Array.from(e.target.files||[]);
+    const newOnes:Asset[]=files.map(f=>{
+      const type=detectFileType(f);
+      return { name:f.name.replace(/\.[^.]+$/,""), dur:"—", type, src:"uploaded", url:URL.createObjectURL(f) };
+    });
+    setAssets(p=>[...p,...newOnes]);
+    setActiveTab("assets");
+    e.target.value="";
+  };
+
   return (
     <>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <input ref={importFileRef} type="file" multiple
+        accept="video/*,audio/*,image/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.aac,.flac,.m4a"
+        style={{display:"none"}} onChange={handleImportFiles}/>
       <div style={{
         display:"grid",
         gridTemplateColumns:"72px 1fr 320px",
@@ -2034,7 +2086,7 @@ export default function ProCutEditor() {
           onUndo={undo} onRedo={redo}
           hasSelection={!!selectedId} canPaste={!!clipboard}
         />
-        <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab}/>
+        <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab} onImport={()=>{ setActiveTab("assets"); importFileRef.current?.click(); }}/>
         <PreviewWindow
           clips={clips}
           playhead={playhead} setPlayhead={setPlayhead}
