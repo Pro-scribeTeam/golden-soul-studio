@@ -40,7 +40,13 @@ interface Clip {
   type: "video"|"audio"|"text";
   src: "generated"|"uploaded"|"drive";
   url?: string;
-  inPoint?: number; // source in-point seconds (for razor splits)
+  inPoint?: number;  // source in-point seconds (for razor splits)
+  speed?: number;    // percentage, 100 = normal
+  opacity?: number;  // 0–100
+  effects?: string[];
+  colorGrade?: string;
+  volume?: number;   // 0–200
+  muted?: boolean;
 }
 interface Track {
   id: string; type: "video"|"audio"|"text";
@@ -287,8 +293,8 @@ function ToolsPanel({ tool, setTool, onTab }: {
       {id:"text",        icon:Type,          label:"Text Tool",    kbd:"T",  tab:"text"},
       {id:"color",       icon:Palette,       label:"Color Tool",   kbd:"G",  tab:"color"},
       {id:"effects",     icon:Sparkles,      label:"Effects",      kbd:"⌘F", tab:"effects"},
-      {id:"transitions", icon:Shuffle,       label:"Transitions",  kbd:"⌘T"},
-      {id:"motion",      icon:Move,          label:"Motion/Keys",  kbd:"K"},
+      {id:"transitions", icon:Shuffle,       label:"Transitions",  kbd:"⌘T", tab:"effects"},
+      {id:"motion",      icon:Move,          label:"Motion/Keys",  kbd:"K",  tab:"effects"},
     ],
     [
       {id:"zoom",        icon:ZoomIn,        label:"Zoom",         kbd:"Z"},
@@ -544,11 +550,13 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
   storyText:string; setStoryText:(v:string)=>void;
   assets:Asset[]; setAssets:React.Dispatch<React.SetStateAction<Asset[]>>;
+  onUpdateClip:(id:string, updates:Partial<Clip>)=>void;
+  onAddClip:(name:string)=>void;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -585,11 +593,11 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
       {/* Tab content */}
       <div style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column"}}>
         {activeTab==="assets"    && <AssetsTab assets={assets} setAssets={setAssets}/>}
-        {activeTab==="inspector" && <InspectorTab clip={selectedClip}/>}
-        {activeTab==="effects"   && <EffectsTab/>}
-        {activeTab==="color"     && <ColorTab/>}
+        {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
+        {activeTab==="effects"   && <EffectsTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
+        {activeTab==="color"     && <ColorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
         {activeTab==="audio"     && <AudioTab/>}
-        {activeTab==="text"      && <TextTab/>}
+        {activeTab==="text"      && <TextTab onAddClip={onAddClip}/>}
         {activeTab==="story"     && <StoryTab narrative={narrative} setNarrative={setNarrative} storyText={storyText} setStoryText={setStoryText}/>}
       </div>
     </div>
@@ -870,7 +878,7 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
 }
 
 // ── Tab: Inspector ─────────────────────────────────────────────────────────
-function InspectorTab({ clip }: { clip:Clip|null }) {
+function InspectorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:string,updates:Partial<Clip>)=>void }) {
   if (!clip) return (
     <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
       <p style={{fontSize:11, color:C.muted, textAlign:"center"}}>
@@ -878,6 +886,9 @@ function InspectorTab({ clip }: { clip:Clip|null }) {
       </p>
     </div>
   );
+  const speed = clip.speed ?? 100;
+  const opacity = clip.opacity ?? 100;
+  const appliedFx = clip.effects ?? [];
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
       <p style={{fontSize:11, color:C.gold, margin:"0 0 10px 0", fontWeight:600}}>{clip.name}</p>
@@ -894,35 +905,64 @@ function InspectorTab({ clip }: { clip:Clip|null }) {
         </div>
       ))}
       <div style={{marginTop:10}}>
-        <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>SPEED</p>
-        <input type="number" defaultValue={100}
+        <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>SPEED (%)</p>
+        <input type="number" min={10} max={400} value={speed}
+          onChange={e=>onUpdateClip(clip.id,{speed:Number(e.target.value)})}
           style={{width:"100%", background:"#0D0D0D", border:`1px solid ${C.border}`,
-            borderRadius:6, color:C.text, padding:"4px 8px", fontSize:11}}/>
+            borderRadius:6, color:C.text, padding:"4px 8px", fontSize:11, outline:"none"}}/>
       </div>
       <div style={{marginTop:10}}>
-        <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>OPACITY</p>
-        <input type="range" min={0} max={100} defaultValue={100}
+        <div style={{display:"flex", justifyContent:"space-between", marginBottom:4}}>
+          <p style={{fontSize:10, color:C.muted, margin:0}}>OPACITY</p>
+          <span style={{fontSize:10, color:C.text}}>{opacity}%</span>
+        </div>
+        <input type="range" min={0} max={100} value={opacity}
+          onChange={e=>onUpdateClip(clip.id,{opacity:Number(e.target.value)})}
           style={{width:"100%", accentColor:C.gold}}/>
       </div>
-      {["Stabilize","Upscale","Denoise","Interpolate"].map(a=>(
-        <button key={a} style={{
-          width:"100%", marginTop:6, padding:"6px",
-          borderRadius:6, border:`1px solid ${C.border}`,
-          background:"transparent", color:C.muted,
-          cursor:"pointer", fontSize:11,
-        }}>{a}</button>
-      ))}
+      <div style={{marginTop:12}}>
+        <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>AI ENHANCE</p>
+        {["Stabilize","Upscale","Denoise","Interpolate"].map(a=>{
+          const active=appliedFx.includes(a);
+          return (
+            <button key={a} onClick={()=>onUpdateClip(clip.id,{effects:active?appliedFx.filter(x=>x!==a):[...appliedFx,a]})}
+              style={{
+                width:"100%", marginTop:6, padding:"6px",
+                borderRadius:6, cursor:"pointer", fontSize:11,
+                background: active?`${C.gold}22`:"transparent",
+                border:`1px solid ${active?C.gold+"66":C.border}`,
+                color: active?C.gold:C.muted,
+              }}>{active?"✓ ":""}{a}</button>
+          );
+        })}
+      </div>
+      {appliedFx.length>0 && (
+        <div style={{marginTop:10, padding:"6px 8px", background:"#0D1A0D", borderRadius:6, border:`1px solid ${C.teal}33`}}>
+          <p style={{fontSize:9, color:C.teal, margin:0}}>Applied: {appliedFx.join(", ")}</p>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Tab: Effects ───────────────────────────────────────────────────────────
-function EffectsTab() {
+function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:string,updates:Partial<Clip>)=>void }) {
   const [q,setQ]=useState(""), [cat,setCat]=useState("All");
   const cats=["All","Motion","Blur","Grain","Lens","Overlays","Particles","Glitch","Stylize","Distortion"];
   const filtered=EFFECTS.filter(e=>(cat==="All"||e.cat===cat)&&e.name.toLowerCase().includes(q.toLowerCase()));
+  const appliedFx = clip?.effects ?? [];
   return (
     <div style={{display:"flex", flexDirection:"column", height:"100%", overflow:"hidden"}}>
+      {!clip && (
+        <div style={{padding:"8px 10px", background:`${C.gold}0A`, borderBottom:`1px solid ${C.border}`}}>
+          <p style={{fontSize:10, color:C.muted, margin:0}}>Select a clip to apply effects</p>
+        </div>
+      )}
+      {clip && appliedFx.length>0 && (
+        <div style={{padding:"6px 10px", background:"#0D1A0D", borderBottom:`1px solid ${C.teal}22`}}>
+          <p style={{fontSize:9, color:C.teal, margin:0}}>Applied: {appliedFx.join(" · ")}</p>
+        </div>
+      )}
       <div style={{padding:"8px 10px", borderBottom:`1px solid ${C.border}`}}>
         <div style={{display:"flex", gap:4, background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 8px"}}>
           <Search size={12} color={C.muted}/>
@@ -941,54 +981,78 @@ function EffectsTab() {
         </div>
       </div>
       <div style={{flex:1, overflowY:"auto", padding:"6px 10px"}}>
-        {filtered.map(e=>(
-          <div key={e.name} style={{
-            display:"flex", alignItems:"center",
-            padding:"7px 8px", borderRadius:7, marginBottom:3,
-            border:`1px solid ${C.border}`, background:"#0D0D0D",
-          }}>
-            <div style={{flex:1}}>
-              <p style={{fontSize:11, color:C.text, margin:0}}>{e.name}</p>
-              <p style={{fontSize:9, color:C.muted, margin:0}}>{e.cat}</p>
+        {filtered.map(e=>{
+          const applied=appliedFx.includes(e.name);
+          return (
+            <div key={e.name} style={{
+              display:"flex", alignItems:"center",
+              padding:"7px 8px", borderRadius:7, marginBottom:3,
+              border:`1px solid ${applied?C.gold+"44":C.border}`,
+              background: applied?"#1A1400":"#0D0D0D",
+            }}>
+              <div style={{flex:1}}>
+                <p style={{fontSize:11, color:applied?C.gold:C.text, margin:0}}>{e.name}</p>
+                <p style={{fontSize:9, color:C.muted, margin:0}}>{e.cat}</p>
+              </div>
+              <button
+                disabled={!clip}
+                onClick={()=>{ if(!clip) return; onUpdateClip(clip.id,{effects:applied?appliedFx.filter(n=>n!==e.name):[...appliedFx,e.name]}); }}
+                style={{
+                  padding:"3px 8px", borderRadius:5, fontSize:10, cursor:clip?"pointer":"default",
+                  background: applied?`${C.red}22`:`${C.gold}22`,
+                  border:`1px solid ${applied?C.red+"44":C.gold+"44"}`,
+                  color: applied?C.red:C.gold,
+                }}>{applied?"Remove":"Apply"}</button>
             </div>
-            <button style={{
-              padding:"3px 8px", borderRadius:5, fontSize:10,
-              background:`${C.gold}22`, border:`1px solid ${C.gold}44`,
-              color:C.gold, cursor:"pointer",
-            }}>Apply</button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 // ── Tab: Color ─────────────────────────────────────────────────────────────
-function ColorTab() {
-  const [preset,setPreset]=useState("Golden Soul");
+function ColorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:string,updates:Partial<Clip>)=>void }) {
+  const preset = clip?.colorGrade ?? "Golden Soul";
   const [section,setSection]=useState<string|null>("EXPOSURE");
-  const sliders: Record<string, string[]> = {
+  const SLIDER_DEFS: Record<string, string[]> = {
     "EXPOSURE":["Brightness","Contrast","Highlights","Shadows","Whites","Blacks"],
     "COLOR":["Temperature","Tint","Saturation","Vibrance","Hue Shift"],
     "VIGNETTE":["Intensity","Feather"],
     "GRAIN":["Amount","Size"],
   };
+  const [sliderVals,setSliderVals]=useState<Record<string,number>>({});
+  const setVal=(key:string,v:number)=>setSliderVals(p=>({...p,[key]:v}));
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
+      {!clip && (
+        <div style={{padding:"6px 8px", background:`${C.gold}0A`, borderRadius:6, marginBottom:10}}>
+          <p style={{fontSize:10, color:C.muted, margin:0}}>Select a clip to apply color grading</p>
+        </div>
+      )}
       {/* Presets */}
       <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>PRESETS</p>
       <div style={{display:"flex", gap:4, overflowX:"auto", marginBottom:12, paddingBottom:4}}>
         {COLOR_PRESETS.map(p=>(
-          <button key={p} onClick={()=>setPreset(p)} style={{
-            flexShrink:0, padding:"4px 10px", borderRadius:6, fontSize:10,
-            background: preset===p?`${C.gold}22`:"#0D0D0D",
-            border:`1px solid ${preset===p?C.gold:C.border}`,
-            color: preset===p?C.gold:C.muted, cursor:"pointer", whiteSpace:"nowrap",
-          }}>{p}</button>
+          <button key={p}
+            disabled={!clip}
+            onClick={()=>{ if(clip) onUpdateClip(clip.id,{colorGrade:p}); }}
+            style={{
+              flexShrink:0, padding:"4px 10px", borderRadius:6, fontSize:10,
+              background: preset===p?`${C.gold}22`:"#0D0D0D",
+              border:`1px solid ${preset===p?C.gold:C.border}`,
+              color: preset===p?C.gold:C.muted,
+              cursor:clip?"pointer":"default", whiteSpace:"nowrap",
+            }}>{p}</button>
         ))}
       </div>
-      {/* Manual sections */}
-      {Object.entries(sliders).map(([sec,controls])=>(
+      {clip?.colorGrade && (
+        <div style={{marginBottom:10, padding:"5px 8px", background:"#1A1400", borderRadius:6, border:`1px solid ${C.gold}33`}}>
+          <p style={{fontSize:9, color:C.gold, margin:0}}>Applied: {clip.colorGrade}</p>
+        </div>
+      )}
+      {/* Manual adjustments */}
+      {Object.entries(SLIDER_DEFS).map(([sec,controls])=>(
         <div key={sec} style={{marginBottom:8}}>
           <button onClick={()=>setSection(section===sec?null:sec)} style={{
             width:"100%", display:"flex", justifyContent:"space-between",
@@ -1000,19 +1064,23 @@ function ColorTab() {
           </button>
           {section===sec && (
             <div style={{paddingLeft:4}}>
-              {controls.map(ctrl=>(
-                <div key={ctrl} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-                  <span style={{fontSize:10, color:C.muted, width:80, flexShrink:0}}>{ctrl}</span>
-                  <input type="range" min={-100} max={100} defaultValue={0}
-                    style={{flex:1, accentColor:C.gold}}/>
-                  <span style={{fontSize:10, color:C.text, width:24, textAlign:"right"}}>0</span>
-                </div>
-              ))}
+              {controls.map(ctrl=>{
+                const val=sliderVals[ctrl]??0;
+                return (
+                  <div key={ctrl} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
+                    <span style={{fontSize:10, color:C.muted, width:80, flexShrink:0}}>{ctrl}</span>
+                    <input type="range" min={-100} max={100} value={val}
+                      onChange={e=>setVal(ctrl,Number(e.target.value))}
+                      style={{flex:1, accentColor:C.gold}}/>
+                    <span style={{fontSize:10, color:val!==0?C.gold:C.text, width:28, textAlign:"right"}}>{val}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       ))}
-      <button style={{
+      <button onClick={()=>{}} style={{
         width:"100%", padding:"7px", marginTop:8,
         borderRadius:8, border:`1px solid ${C.gold}44`,
         background:`${C.gold}11`, color:C.gold, cursor:"pointer", fontSize:11,
@@ -1026,47 +1094,64 @@ function ColorTab() {
 
 // ── Tab: Audio ─────────────────────────────────────────────────────────────
 function AudioTab() {
-  const tracks=[
-    {name:"Music",        vol:85, muted:false},
-    {name:"SFX",          vol:60, muted:false},
-    {name:"Ambience",     vol:30, muted:true},
-  ];
+  const [mixer,setMixer]=useState([
+    {name:"Music",    vol:85, muted:false, soloed:false},
+    {name:"SFX",      vol:60, muted:false, soloed:false},
+    {name:"Ambience", vol:30, muted:true,  soloed:false},
+  ]);
+  const [activePlugins,setActivePlugins]=useState<Record<string,string[]>>({});
+
+  const toggleMute=(i:number)=>setMixer(p=>p.map((t,j)=>j===i?{...t,muted:!t.muted}:t));
+  const toggleSolo=(i:number)=>setMixer(p=>p.map((t,j)=>j===i?{...t,soloed:!t.soloed}:t));
+  const setVol=(i:number,v:number)=>setMixer(p=>p.map((t,j)=>j===i?{...t,vol:v}:t));
+  const togglePlugin=(trackName:string,plugin:string)=>setActivePlugins(p=>{
+    const cur=p[trackName]??[];
+    return {...p,[trackName]:cur.includes(plugin)?cur.filter(x=>x!==plugin):[...cur,plugin]};
+  });
+
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
       <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0"}}>MASTER MIXER</p>
-      {tracks.map(t=>(
+      {mixer.map((t,i)=>(
         <div key={t.name} style={{
-          background:"#0D0D0D", border:`1px solid ${C.border}`,
+          background:"#0D0D0D", border:`1px solid ${t.muted?C.red+"33":C.border}`,
           borderRadius:8, padding:"8px 10px", marginBottom:8,
+          opacity: t.muted ? 0.6 : 1,
         }}>
           <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:8}}>
-            <span style={{fontSize:11, color:C.text, flex:1}}>{t.name}</span>
-            <button style={{
+            <span style={{fontSize:11, color:t.muted?C.muted:C.text, flex:1}}>{t.name}</span>
+            <button onClick={()=>toggleMute(i)} style={{
               width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
-              background: t.muted?C.red+"33":"transparent",
+              background: t.muted?C.red+"44":"transparent",
               border:`1px solid ${t.muted?C.red:C.border}`,
               color: t.muted?C.red:C.muted, cursor:"pointer",
             }}>M</button>
-            <button style={{
+            <button onClick={()=>toggleSolo(i)} style={{
               width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
-              background:"transparent", border:`1px solid ${C.border}`,
-              color:C.muted, cursor:"pointer",
+              background: t.soloed?`${C.gold}44`:"transparent",
+              border:`1px solid ${t.soloed?C.gold:C.border}`,
+              color: t.soloed?C.gold:C.muted, cursor:"pointer",
             }}>S</button>
           </div>
           <div style={{display:"flex", alignItems:"center", gap:6}}>
             <span style={{fontSize:9, color:C.muted, width:20}}>Vol</span>
-            <input type="range" min={0} max={200} defaultValue={t.vol}
+            <input type="range" min={0} max={200} value={t.vol}
+              onChange={e=>setVol(i,Number(e.target.value))}
               style={{flex:1, accentColor:C.gold}}/>
-            <span style={{fontSize:9, color:C.text, width:28}}>{t.vol}%</span>
+            <span style={{fontSize:9, color:t.vol!==100?C.gold:C.text, width:32}}>{t.vol}%</span>
           </div>
           <div style={{display:"flex", gap:4, marginTop:8, flexWrap:"wrap"}}>
-            {["EQ","Comp","Reverb","Noise"].map(a=>(
-              <button key={a} style={{
-                padding:"2px 7px", borderRadius:5, fontSize:9,
-                background:"transparent", border:`1px solid ${C.border}`,
-                color:C.muted, cursor:"pointer",
-              }}>{a}</button>
-            ))}
+            {["EQ","Comp","Reverb","Noise"].map(a=>{
+              const on=(activePlugins[t.name]??[]).includes(a);
+              return (
+                <button key={a} onClick={()=>togglePlugin(t.name,a)} style={{
+                  padding:"2px 7px", borderRadius:5, fontSize:9,
+                  background: on?`${C.gold}22`:"transparent",
+                  border:`1px solid ${on?C.gold+"55":C.border}`,
+                  color: on?C.gold:C.muted, cursor:"pointer",
+                }}>{a}</button>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -1075,7 +1160,7 @@ function AudioTab() {
         borderRadius:8, padding:"8px 10px", marginTop:4,
       }}>
         <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>BEAT SYNC</p>
-        <button style={{
+        <button onClick={()=>{}} style={{
           width:"100%", padding:"6px", borderRadius:6,
           background:`${C.gold}11`, border:`1px solid ${C.gold}44`,
           color:C.gold, cursor:"pointer", fontSize:11,
@@ -1086,30 +1171,44 @@ function AudioTab() {
 }
 
 // ── Tab: Text ──────────────────────────────────────────────────────────────
-function TextTab() {
+function TextTab({ onAddClip }: { onAddClip:(name:string)=>void }) {
+  const [added,setAdded]=useState<string[]>([]);
   const items=[
-    {label:"+ Text Overlay",    desc:"Full typographic control + animation"},
-    {label:"+ Lower Third",     desc:"Broadcast-style name/title bars"},
-    {label:"+ Title Card",      desc:"Full-frame cinematic title screens"},
-    {label:"+ Lyric Captions",  desc:"Word-by-word karaoke sync"},
-    {label:"+ Credits",         desc:"Scrolling or static end credits"},
-    {label:"+ Watermark",       desc:"Logo with position & opacity control"},
-    {label:"+ Countdown",       desc:"Animated countdown overlay"},
+    {label:"Text Overlay",    desc:"Full typographic control + animation"},
+    {label:"Lower Third",     desc:"Broadcast-style name/title bars"},
+    {label:"Title Card",      desc:"Full-frame cinematic title screens"},
+    {label:"Lyric Captions",  desc:"Word-by-word karaoke sync"},
+    {label:"Credits",         desc:"Scrolling or static end credits"},
+    {label:"Watermark",       desc:"Logo with position & opacity control"},
+    {label:"Countdown",       desc:"Animated countdown overlay"},
   ];
+  const addItem=(name:string)=>{
+    onAddClip(name);
+    setAdded(p=>[...p,`${name}-${Date.now()}`]);
+  };
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
       <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0"}}>ADD TEXT LAYER</p>
+      <p style={{fontSize:9, color:C.muted, margin:"0 0 10px 0", opacity:0.7}}>Clips are placed at the current playhead position</p>
       {items.map(item=>(
-        <button key={item.label} style={{
+        <button key={item.label} onClick={()=>addItem(item.label)} style={{
           width:"100%", marginBottom:6, padding:"8px 10px",
           background:"#0D0D0D", border:`1px solid ${C.border}`,
           borderRadius:8, cursor:"pointer", textAlign:"left",
-          transition:"all 0.12s",
-        }}>
-          <p style={{fontSize:11, color:C.gold, margin:0, fontWeight:600}}>{item.label}</p>
+          transition:"border-color 0.15s",
+        }}
+          onMouseEnter={e=>(e.currentTarget.style.borderColor=`${C.gold}55`)}
+          onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}
+        >
+          <p style={{fontSize:11, color:C.gold, margin:0, fontWeight:600}}>+ {item.label}</p>
           <p style={{fontSize:9, color:C.muted, margin:0}}>{item.desc}</p>
         </button>
       ))}
+      {added.length>0 && (
+        <div style={{marginTop:10, padding:"6px 8px", background:"#0D1A0D", borderRadius:6, border:`1px solid ${C.teal}33`}}>
+          <p style={{fontSize:9, color:C.teal, margin:0}}>{added.length} text layer{added.length!==1?"s":""} added to timeline</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1295,8 +1394,23 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const scrollRef=useRef<HTMLDivElement>(null);
   const [dragOver,setDragOver]=useState<string|null>(null);
   const [moveDrag,setMoveDrag]=useState<{clipId:string;startX:number;origStart:number}|null>(null);
+  const [slipDrag,setSlipDrag]=useState<{clipId:string;startX:number;origInPoint:number}|null>(null);
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
+
+  // Slip tool — drag shifts inPoint
+  useEffect(()=>{
+    if(!slipDrag) return;
+    const move=(e:MouseEvent)=>{
+      const delta=(e.clientX-slipDrag.startX)/zoom;
+      setClips(p=>p.map(c=>c.id===slipDrag.clipId
+        ?{...c,inPoint:Math.max(0,Math.round((slipDrag.origInPoint-delta)*10)/10)}:c));
+    };
+    const up=()=>setSlipDrag(null);
+    window.addEventListener("mousemove",move);
+    window.addEventListener("mouseup",up);
+    return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+  },[slipDrag,zoom,setClips]);
 
   // Select tool — move clip
   useEffect(()=>{
@@ -1375,10 +1489,10 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         setSelectedId(null);
       }
     } else if(tool==="slip"){
-      // Slip: shift in-point without moving clip on timeline — requires source duration
-      // Visual only for now; selects the clip
-      e.stopPropagation();
+      // Slip: drag left/right to shift source in-point without moving the clip
+      e.preventDefault(); e.stopPropagation();
       setSelectedId(clip.id);
+      setSlipDrag({clipId:clip.id,startX:e.clientX,origInPoint:clip.inPoint??0});
     } else if(tool==="slide"){
       // Slide: move clip and ripple neighbors
       e.preventDefault();e.stopPropagation();
@@ -1786,6 +1900,8 @@ export default function ProCutEditor() {
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const [clipboard,setClipboard]=useState<Clip|null>(null);
   const [projectName,setProjectName]=useState("Jeff Dixon — Music Video");
+  const undoStack=useRef<Clip[][]>([]);
+  const redoStack=useRef<Clip[][]>([]);
   const [narrative,setNarrative]=useState(false);
   const [storyText,setStoryText]=useState("");
   const [assets,setAssets]=useState<Asset[]>(()=>{
@@ -1816,14 +1932,49 @@ export default function ProCutEditor() {
 
   const selectedClip=clips.find(c=>c.id===selectedId)||null;
 
+  // Undo / Redo
+  const snapshot=useCallback(()=>{
+    undoStack.current=[...undoStack.current.slice(-49),clips.map(c=>({...c}))];
+    redoStack.current=[];
+  },[clips]);
+
+  const undo=useCallback(()=>{
+    if(!undoStack.current.length) return;
+    redoStack.current=[...redoStack.current,clips.map(c=>({...c}))];
+    setClips(undoStack.current[undoStack.current.length-1]);
+    undoStack.current=undoStack.current.slice(0,-1);
+  },[clips]);
+
+  const redo=useCallback(()=>{
+    if(!redoStack.current.length) return;
+    undoStack.current=[...undoStack.current,clips.map(c=>({...c}))];
+    setClips(redoStack.current[redoStack.current.length-1]);
+    redoStack.current=redoStack.current.slice(0,-1);
+  },[clips]);
+
+  // Update clip properties
+  const updateClip=useCallback((id:string,updates:Partial<Clip>)=>{
+    setClips(p=>p.map(c=>c.id===id?{...c,...updates}:c));
+  },[]);
+
+  // Add text clip at playhead
+  const addTextClip=useCallback((name:string)=>{
+    setClips(p=>[...p,{
+      id:`c${Date.now()}`,trackId:"v1",name,
+      start:playhead,duration:5,
+      type:"text",src:"uploaded",
+    }]);
+  },[playhead]);
+
   const cutClip=useCallback(()=>{
     if(!selectedId) return;
     const clip=clips.find(c=>c.id===selectedId);
     if(!clip) return;
+    snapshot();
     setClipboard(clip);
     setClips(p=>p.filter(c=>c.id!==selectedId));
     setSelectedId(null);
-  },[selectedId,clips]);
+  },[selectedId,clips,snapshot]);
 
   const copyClip=useCallback(()=>{
     const clip=clips.find(c=>c.id===selectedId);
@@ -1832,14 +1983,16 @@ export default function ProCutEditor() {
 
   const pasteClip=useCallback(()=>{
     if(!clipboard) return;
+    snapshot();
     setClips(p=>[...p,{...clipboard,id:`c${Date.now()}`,start:playhead}]);
-  },[clipboard,playhead]);
+  },[clipboard,playhead,snapshot]);
 
   const deleteClip=useCallback(()=>{
     if(!selectedId) return;
+    snapshot();
     setClips(p=>p.filter(c=>c.id!==selectedId));
     setSelectedId(null);
-  },[selectedId]);
+  },[selectedId,snapshot]);
 
   // Keyboard shortcuts
   useEffect(()=>{
@@ -1854,11 +2007,13 @@ export default function ProCutEditor() {
       if((e.metaKey||e.ctrlKey)&&e.code==="KeyX"){ e.preventDefault(); cutClip(); }
       if((e.metaKey||e.ctrlKey)&&e.code==="KeyC"){ e.preventDefault(); copyClip(); }
       if((e.metaKey||e.ctrlKey)&&e.code==="KeyV"){ e.preventDefault(); pasteClip(); }
+      if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.code==="KeyZ"){ e.preventDefault(); undo(); }
+      if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.code==="KeyZ"){ e.preventDefault(); redo(); }
       if(e.code==="Delete"||e.code==="Backspace"){ deleteClip(); }
     };
     window.addEventListener("keydown",handler);
     return ()=>window.removeEventListener("keydown",handler);
-  },[cutClip,copyClip,pasteClip,deleteClip]);
+  },[cutClip,copyClip,pasteClip,deleteClip,undo,redo]);
 
   return (
     <>
@@ -1876,7 +2031,7 @@ export default function ProCutEditor() {
           onExport={()=>setShowExport(true)}
           onSettings={()=>setShowSettings(true)}
           onCut={cutClip} onCopy={copyClip} onPaste={pasteClip} onDelete={deleteClip}
-          onUndo={()=>{}} onRedo={()=>{}}
+          onUndo={undo} onRedo={redo}
           hasSelection={!!selectedId} canPaste={!!clipboard}
         />
         <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab}/>
@@ -1892,6 +2047,7 @@ export default function ProCutEditor() {
           narrative={narrative} setNarrative={setNarrative}
           storyText={storyText} setStoryText={setStoryText}
           assets={assets} setAssets={setAssets}
+          onUpdateClip={updateClip} onAddClip={addTextClip}
         />
         <Timeline
           tracks={tracks} clips={clips} setClips={setClips}
