@@ -411,7 +411,7 @@ function OutputCardView({
       )}
 
       {/* Content */}
-      {isComplete && card.content && (
+      {isComplete && !!card.content && (
         <ContentRenderer type={card.type} data={card.content} />
       )}
     </div>
