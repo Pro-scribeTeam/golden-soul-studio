@@ -485,6 +485,7 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
   const [view,setView]=useState<"local"|"history">("local");
   const [filter,setFilter]=useState("All");
   const [q,setQ]=useState("");
+  const [preview,setPreview]=useState<Asset|null>(null);
   const [history,setHistory]=useState<HistoryItem[]>([]);
   const [histLoading,setHistLoading]=useState(false);
   const [added,setAdded]=useState<Set<string>>(new Set());
@@ -587,7 +588,14 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={a.thumb} alt={a.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                       ) : a.type==="video"?<Film size={18} color={C.teal}/>:a.type==="audio"?<Music size={18} color={C.gold}/>:<Eye size={18} color={`${C.gold}88`}/>}
-                      <div style={{position:"absolute",bottom:2,right:3,fontSize:7,color:C.gold,background:"#000A",padding:"1px 3px",borderRadius:2}}>{a.src}</div>
+                      <div style={{position:"absolute",bottom:2,left:3,fontSize:7,color:C.gold,background:"#000A",padding:"1px 3px",borderRadius:2}}>{a.src}</div>
+                      <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setPreview(a);}}
+                        style={{position:"absolute",top:3,right:3,width:18,height:18,borderRadius:4,
+                          background:"rgba(0,0,0,0.65)",border:`1px solid ${C.border}`,
+                          display:"flex",alignItems:"center",justifyContent:"center",
+                          cursor:"pointer",color:C.text,padding:0}}>
+                        <Eye size={9}/>
+                      </button>
                     </div>
                     <div style={{padding:"4px 6px", display:"flex", alignItems:"center", gap:3}}>
                       <div style={{flex:1, minWidth:0}}>
@@ -683,6 +691,55 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Asset preview modal */}
+      {preview && (
+        <div onClick={()=>setPreview(null)} style={{
+          position:"fixed", inset:0, zIndex:600,
+          background:"rgba(0,0,0,0.88)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            width:500, maxWidth:"92vw",
+            background:C.panel, border:`1px solid ${C.border}`,
+            borderRadius:14, overflow:"hidden",
+          }}>
+            {/* Header */}
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px", borderBottom:`1px solid ${C.border}`}}>
+              <div>
+                <p style={{fontSize:12, color:C.text, margin:0, fontWeight:600}}>{preview.name}</p>
+                <p style={{fontSize:9, color:C.muted, margin:"2px 0 0", textTransform:"capitalize"}}>{preview.type} · {preview.src}</p>
+              </div>
+              <button onClick={()=>setPreview(null)} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:4}}>
+                <X size={15}/>
+              </button>
+            </div>
+
+            {/* Media */}
+            <div style={{padding:12}}>
+              {preview.type==="video" ? (
+                <video src={preview.url} controls autoPlay playsInline
+                  style={{width:"100%", borderRadius:8, background:"#000", maxHeight:300, display:"block"}}/>
+              ) : preview.type==="audio" ? (
+                <div style={{padding:"20px 0", display:"flex", flexDirection:"column", alignItems:"center", gap:14}}>
+                  <div style={{width:64, height:64, borderRadius:"50%", background:`${C.gold}1A`, border:`1px solid ${C.gold}33`, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                    <Music2 size={28} color={C.gold}/>
+                  </div>
+                  <audio src={preview.url} controls style={{width:"100%"}}/>
+                </div>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview.url||preview.thumb} alt={preview.name}
+                  style={{width:"100%", borderRadius:8, maxHeight:320, objectFit:"contain", display:"block", background:"#050505"}}/>
+              )}
+            </div>
+
+            <p style={{fontSize:9, color:C.muted, textAlign:"center", margin:"0 0 12px", opacity:0.6}}>
+              Close and drag the card onto a timeline track
+            </p>
+          </div>
         </div>
       )}
     </div>
