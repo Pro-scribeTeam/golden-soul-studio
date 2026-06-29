@@ -15,27 +15,31 @@ const NANO_BANANA_MODELS = new Set(["nano-banana-pro", "nano-banana-2"]);
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageUrl, prompt, model, strength } = await req.json();
+    const { imageUrl, prompt, model, strength, additionalImageUrls } = await req.json();
     if (!imageUrl || !prompt) {
       return NextResponse.json({ error: "imageUrl and prompt are required" }, { status: 400 });
     }
 
     const modelId = MODEL_MAP[model] || "wavespeed-ai/flux-kontext-max";
+    const extraUrls: string[] = Array.isArray(additionalImageUrls) ? additionalImageUrls.filter(Boolean) : [];
 
     let input: Record<string, unknown>;
     if (NANO_BANANA_MODELS.has(model)) {
-      // Nano Banana: images array, resolution string
+      // Nano Banana: images array — source image first, then additional references
       input = {
-        images: [imageUrl],
+        images: [imageUrl, ...extraUrls],
         prompt,
         resolution: "2k",
       };
     } else {
-      // FLUX Kontext: image string, guidance_scale (1–20)
+      // FLUX Kontext: single image — additional images referenced in prompt
       const guidanceScale = 1 + ((Number(strength) || 80) / 100) * 19; // map 0–100 → 1–20
+      const referenceNote = extraUrls.length > 0
+        ? ` Reference image${extraUrls.length > 1 ? "s" : ""}: ${extraUrls.join(", ")}.`
+        : "";
       input = {
         image: imageUrl,
-        prompt,
+        prompt: prompt + referenceNote,
         guidance_scale: Math.round(guidanceScale * 10) / 10,
       };
     }

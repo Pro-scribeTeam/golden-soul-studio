@@ -442,7 +442,8 @@ export default function ImageGeneration() {
   const editImage = () => {
     if (!imageUrl) { setError("Please upload or paste an image URL."); return; }
     if (!editPrompt.trim()) { setError("Please describe the edit."); return; }
-    run("/api/wavespeed/edit", { imageUrl, prompt: editPrompt, model: editModel, strength: editStrength }, "edit");
+    const additionalImageUrls = additionalImages.filter((img) => img.url).map((img) => img.url);
+    run("/api/wavespeed/edit", { imageUrl, prompt: editPrompt, model: editModel, strength: editStrength, additionalImageUrls }, "edit");
   };
 
   const upscaleImage = () => {
