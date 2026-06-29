@@ -53,11 +53,12 @@ export async function POST(req: NextRequest) {
     };
 
     if (isI2V) {
+      // Send both field names — WaveSpeed models vary: some use "image", some "image_url"
+      input.image = imageUrl;
       input.image_url = imageUrl;
-    }
-
-    if (endImageUrl) {
-      input.tail_image_url = endImageUrl;
+      if (endImageUrl) {
+        input.tail_image_url = endImageUrl;
+      }
     }
 
     const result = await callWavespeed(modelId, input);
