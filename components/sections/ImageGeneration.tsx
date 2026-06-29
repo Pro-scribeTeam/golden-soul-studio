@@ -7,7 +7,7 @@ import { GoldSlider } from "@/components/ui/GoldSlider";
 import { GoldDropdown } from "@/components/ui/GoldDropdown";
 import { LoadingRing } from "@/components/ui/LoadingRing";
 import { OutputCard } from "@/components/ui/OutputCard";
-import { Upload, X, Link, Video } from "lucide-react";
+import { Upload, X, Link, Video, Plus } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -192,6 +192,114 @@ function ImageUploadZone({ imageUrl, preview, uploading, onFile, onUrlPaste, onC
   );
 }
 
+// ─── Additional Images Zone ───────────────────────────────────────────────────
+
+interface AdditionalImage {
+  url: string;
+  preview: string;
+  uploading: boolean;
+}
+
+interface AdditionalImagesZoneProps {
+  images: AdditionalImage[];
+  onAdd: (file: File) => void;
+  onRemove: (index: number) => void;
+}
+
+function AdditionalImagesZone({ images, onAdd, onRemove }: AdditionalImagesZoneProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    files.forEach(onAdd);
+  }, [onAdd]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(onAdd);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider block">
+        Additional Images
+      </label>
+
+      {/* Numbered thumbnails */}
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {images.map((img, i) => (
+            <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden border border-[#C9A84C33] flex-shrink-0">
+              {img.uploading ? (
+                <div className="w-full h-full bg-[#111118] flex items-center justify-center">
+                  <div className="w-5 h-5 border-2 border-[#C9A84C22] border-t-[#C9A84C] rounded-full animate-spin" />
+                </div>
+              ) : (
+                <img src={img.preview || img.url} alt={`Reference ${i + 1}`} className="w-full h-full object-cover" />
+              )}
+              {/* Number badge */}
+              <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#C9A84C] flex items-center justify-center">
+                <span className="text-[10px] font-body font-bold text-[#0A0A0F]">{i + 1}</span>
+              </div>
+              {/* Remove button */}
+              <button
+                onClick={() => onRemove(i)}
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-[#0A0A0FCC] flex items-center justify-center hover:bg-[#0A0A0F] transition-colors"
+              >
+                <X size={10} className="text-[#F5F0E8]" />
+              </button>
+            </div>
+          ))}
+
+          {/* Add more button (inline) */}
+          <button
+            onClick={() => inputRef.current?.click()}
+            className="w-20 h-20 rounded-lg border-2 border-dashed border-[#C9A84C33] hover:border-[#C9A84C66] hover:bg-[#C9A84C08] flex flex-col items-center justify-center gap-1 transition-all flex-shrink-0"
+          >
+            <Plus size={16} className="text-[#C9A84C]" />
+            <span className="text-[10px] text-[#C9A84C88] font-body">Add</span>
+          </button>
+        </div>
+      )}
+
+      {/* Drop zone (shown when empty) */}
+      {images.length === 0 && (
+        <div
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`flex flex-col items-center justify-center gap-2 p-5 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+            dragOver
+              ? "border-[#C9A84C] bg-[#C9A84C0D]"
+              : "border-[#C9A84C33] bg-[#111118] hover:border-[#C9A84C66] hover:bg-[#C9A84C08]"
+          }`}
+        >
+          <Plus size={20} className="text-[#C9A84C]" />
+          <p className="text-xs text-[#F5F0E8AA] font-body text-center">
+            Drop images here or <span className="text-[#C9A84C]">click to add</span>
+          </p>
+          <p className="text-[10px] text-[#F5F0E844] font-body">Multiple images — each numbered in order</p>
+        </div>
+      )}
+
+      {/* Hidden file input — multiple */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleChange}
+      />
+    </div>
+  );
+}
+
 // ─── Polling helper ───────────────────────────────────────────────────────────
 
 async function pollResult(requestId: string, onProgress: (p: number) => void): Promise<string[]> {
@@ -238,6 +346,9 @@ export default function ImageGeneration() {
   const [imagePreview, setImagePreview] = useState("");
   const [uploadLoading, setUploadLoading] = useState(false);
 
+  // Additional images (edit mode)
+  const [additionalImages, setAdditionalImages] = useState<AdditionalImage[]>([]);
+
   // Shared result state
   const [loading, setLoading]     = useState(false);
   const [progress, setProgress]   = useState(0);
@@ -270,6 +381,28 @@ export default function ImageGeneration() {
   const clearImage = () => {
     setImageUrl("");
     setImagePreview("");
+  };
+
+  const addAdditionalImage = async (file: File) => {
+    const preview = URL.createObjectURL(file);
+    const index = additionalImages.length;
+    setAdditionalImages((prev) => [...prev, { url: "", preview, uploading: true }]);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setAdditionalImages((prev) =>
+        prev.map((img, i) => i === index ? { ...img, url: data.url ?? "", uploading: false } : img)
+      );
+    } catch {
+      setAdditionalImages((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const removeAdditionalImage = (index: number) => {
+    setAdditionalImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const run = async (apiPath: string, body: Record<string, unknown>, section: string) => {
@@ -453,6 +586,12 @@ export default function ImageGeneration() {
               onClear={clearImage}
             />
             <GoldDropdown label="Edit Model" value={editModel} options={EDIT_MODELS} onChange={setEditModel} />
+
+            <AdditionalImagesZone
+              images={additionalImages}
+              onAdd={addAdditionalImage}
+              onRemove={removeAdditionalImage}
+            />
           </div>
 
           <div className="space-y-6">
