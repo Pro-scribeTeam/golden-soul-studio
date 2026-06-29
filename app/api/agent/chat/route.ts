@@ -543,10 +543,15 @@ export async function POST(req: NextRequest) {
       .limit(20);
 
     type AnthropicMessage = { role: string; content: unknown };
-    const messages: AnthropicMessage[] = (historyRows || []).reverse().map((r) => ({
+    let messages: AnthropicMessage[] = (historyRows || []).reverse().map((r) => ({
       role: r.role,
       content: r.raw_content,
     }));
+
+    // Guard: if DB insert failed silently or table missing, always have the current message
+    if (messages.length === 0) {
+      messages = [{ role: "user", content: message }];
+    }
 
     // Select system prompt based on agent
     const systemPrompt =
