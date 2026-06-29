@@ -234,9 +234,14 @@ export default function VideoGeneration() {
   const [colorGrade, setColorGrade] = useState("none");
 
   // Image input state
-  const [imageUrl, setImageUrl]         = useState("");
-  const [imagePreview, setImagePreview] = useState("");
+  const [imageUrl, setImageUrl]           = useState("");
+  const [imagePreview, setImagePreview]   = useState("");
   const [uploadLoading, setUploadLoading] = useState(false);
+
+  // End frame state
+  const [endImageUrl, setEndImageUrl]         = useState("");
+  const [endImagePreview, setEndImagePreview] = useState("");
+  const [endUploadLoading, setEndUploadLoading] = useState(false);
 
   const [loading, setLoading]   = useState(false);
   const [progress, setProgress] = useState(0);
@@ -282,6 +287,32 @@ export default function VideoGeneration() {
     setModel("kwaivgi/kling-v3");
   };
 
+  const uploadEndFile = async (file: File) => {
+    setEndUploadLoading(true);
+    setEndImagePreview(URL.createObjectURL(file));
+    setEndImageUrl("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const text = await res.text();
+      let data: { url?: string; error?: string };
+      try { data = JSON.parse(text); } catch { throw new Error(`Upload error (${res.status}): ${text.slice(0, 120)}`); }
+      if (data.error) throw new Error(data.error);
+      setEndImageUrl(data.url!);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "End frame upload failed");
+      setEndImagePreview("");
+    } finally {
+      setEndUploadLoading(false);
+    }
+  };
+
+  const clearEndImage = () => {
+    setEndImageUrl("");
+    setEndImagePreview("");
+  };
+
   const generate = async () => {
     if (!prompt.trim()) { setError("Please enter a prompt."); return; }
     setLoading(true);
@@ -301,6 +332,7 @@ export default function VideoGeneration() {
           quality: QUALITY_LABELS[quality],
           aspectRatio,
           ...(hasImage ? { imageUrl } : {}),
+          ...(endImageUrl ? { endImageUrl } : {}),
         }),
       });
 
@@ -346,11 +378,11 @@ export default function VideoGeneration() {
         </p>
       </div>
 
-      {/* Image Upload Zone */}
+      {/* Start / End Frame Upload */}
       <div className="bg-[#111118] border border-[#C9A84C22] rounded-xl p-5 space-y-3">
         <div className="flex items-center gap-2">
           <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">
-            Start from an image <span className="text-[#F5F0E844] normal-case tracking-normal">(optional)</span>
+            Frames <span className="text-[#F5F0E844] normal-case tracking-normal">(optional)</span>
           </label>
           {hasImage && (
             <span className="ml-auto px-2 py-0.5 bg-[#C9A84C22] border border-[#C9A84C44] rounded text-[10px] text-[#C9A84C] font-body">
@@ -358,14 +390,32 @@ export default function VideoGeneration() {
             </span>
           )}
         </div>
-        <VideoImageUpload
-          imageUrl={imageUrl}
-          preview={imagePreview}
-          uploading={uploadLoading}
-          onFile={uploadFile}
-          onUrlPaste={(url) => { setImageUrl(url); setImagePreview(url); setModel("kling-i2v"); }}
-          onClear={clearImage}
-        />
+        <div className="grid grid-cols-2 gap-4">
+          {/* Starting Frame */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-body text-[#C9A84C] uppercase tracking-wider">Starting Frame</p>
+            <VideoImageUpload
+              imageUrl={imageUrl}
+              preview={imagePreview}
+              uploading={uploadLoading}
+              onFile={uploadFile}
+              onUrlPaste={(url) => { setImageUrl(url); setImagePreview(url); setModel("kling-i2v"); }}
+              onClear={clearImage}
+            />
+          </div>
+          {/* Ending Frame */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-body text-[#C9A84C] uppercase tracking-wider">Ending Frame</p>
+            <VideoImageUpload
+              imageUrl={endImageUrl}
+              preview={endImagePreview}
+              uploading={endUploadLoading}
+              onFile={uploadEndFile}
+              onUrlPaste={(url) => { setEndImageUrl(url); setEndImagePreview(url); }}
+              onClear={clearEndImage}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

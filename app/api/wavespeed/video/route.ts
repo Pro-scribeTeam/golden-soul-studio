@@ -31,7 +31,7 @@ const RESOLUTION_MAP: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { model, prompt, duration, quality, aspectRatio, imageUrl } = await req.json();
+    const { model, prompt, duration, quality, aspectRatio, imageUrl, endImageUrl } = await req.json();
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
@@ -54,6 +54,10 @@ export async function POST(req: NextRequest) {
 
     if (isI2V) {
       input.image_url = imageUrl;
+    }
+
+    if (endImageUrl) {
+      input.tail_image_url = endImageUrl;
     }
 
     const result = await callWavespeed(modelId, input);
