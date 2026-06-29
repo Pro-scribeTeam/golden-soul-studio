@@ -15,14 +15,14 @@ const I2V_MODELS = [
   { value: "wan-i2v",      label: "Wan 2.7 — Fast & Reliable",                group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "ltx-i2v",      label: "LTX Video — Fastest Iterations",           group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "seedance-i2v", label: "Seedance 2.0 — Cinematic Quality",         group: "— BEST FOR IMAGE TO VIDEO —" },
-  { value: "veo-i2v",      label: "Veo 3.1 — Native Audio Support",           group: "— BEST FOR IMAGE TO VIDEO —" },
+  { value: "veo-i2v",      label: "Veo 3 — Native Audio + Video ★",           group: "— BEST FOR IMAGE TO VIDEO —" },
 ];
 
 const T2V_MODELS = [
   { value: "kwaivgi/kling-v3",             label: "Kling 3.0 — Cinematic 4K",           group: "— OR GENERATE FROM TEXT —" },
   { value: "minimax/video-01",             label: "Sora 2 — Complex Scenes",             group: "— OR GENERATE FROM TEXT —" },
   { value: "bytedance/seedance-v1-lite",   label: "Seedance 2.0 — Latest Cinematic",     group: "— OR GENERATE FROM TEXT —" },
-  { value: "google/veo-3",                 label: "Veo 3.1 — Native Audio",              group: "— OR GENERATE FROM TEXT —" },
+  { value: "google/veo-3",                 label: "Veo 3 — Native Audio + Video ★",      group: "— OR GENERATE FROM TEXT —" },
   { value: "lightricks/ltx-video-0.9.7",  label: "LTX Video 2.3 — Fastest",             group: "— OR GENERATE FROM TEXT —" },
   { value: "runwayml/gen4-turbo",          label: "Runway Gen-4 — Character Control",    group: "— OR GENERATE FROM TEXT —" },
   { value: "wavespeed-ai/wan-v2.2-t2v-480p", label: "Wan 2.2 — Budget Fast",            group: "— OR GENERATE FROM TEXT —" },
