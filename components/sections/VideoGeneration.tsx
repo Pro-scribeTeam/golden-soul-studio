@@ -29,42 +29,98 @@ const T2V_MODELS = [
 ];
 
 const CAMERA_MOVES = [
-  { value: "slow-dolly-push",    label: "Slow Dolly Push In",        group: "PUSH & PULL" },
-  { value: "slow-dolly-pull",    label: "Slow Dolly Pull Back",       group: "PUSH & PULL" },
-  { value: "fast-crash-zoom-in", label: "Fast Crash Zoom In",         group: "PUSH & PULL" },
-  { value: "fast-crash-zoom-out",label: "Fast Crash Zoom Out",        group: "PUSH & PULL" },
-  { value: "vertigo-dolly",      label: "Vertigo Dolly Zoom",         group: "PUSH & PULL" },
-  { value: "orbit-360-cw",       label: "Orbit 360 Clockwise",        group: "ORBIT & ROTATE" },
-  { value: "orbit-360-ccw",      label: "Orbit 360 Counter-CW",       group: "ORBIT & ROTATE" },
-  { value: "arc-left",           label: "Arc Around Left",            group: "ORBIT & ROTATE" },
-  { value: "arc-right",          label: "Arc Around Right",           group: "ORBIT & ROTATE" },
-  { value: "dutch-tilt-left",    label: "Dutch Angle Tilt Left",      group: "ORBIT & ROTATE" },
-  { value: "crane-up",           label: "Crane Up Reveal",            group: "CRANE & RISE" },
-  { value: "crane-down",         label: "Crane Down Descend",         group: "CRANE & RISE" },
-  { value: "rise-reveal",        label: "Rise and Reveal",            group: "CRANE & RISE" },
-  { value: "birds-eye",          label: "Bird's Eye Top Down",        group: "CRANE & RISE" },
-  { value: "tracking-follow",    label: "Tracking Shot Follow",       group: "TRACK & FOLLOW" },
-  { value: "over-shoulder",      label: "Over The Shoulder",          group: "TRACK & FOLLOW" },
-  { value: "slide-left",         label: "Slide Left",                 group: "LATERAL" },
-  { value: "slide-right",        label: "Slide Right",                group: "LATERAL" },
-  { value: "whip-pan-lr",        label: "Whip Pan Left to Right",     group: "LATERAL" },
-  { value: "whip-pan-rl",        label: "Whip Pan Right to Left",     group: "LATERAL" },
-  { value: "static",             label: "Static Locked Off",          group: "STATIC" },
-  { value: "handheld",           label: "Handheld Intimate",          group: "STATIC" },
-  { value: "low-angle",          label: "Low Angle Ground Level",     group: "STATIC" },
+  // Push & Pull
+  { value: "slow-dolly-push",       label: "Slow Dolly Push In",           group: "PUSH & PULL" },
+  { value: "slow-dolly-pull",       label: "Slow Dolly Pull Back",          group: "PUSH & PULL" },
+  { value: "fast-crash-zoom-in",    label: "Fast Crash Zoom In",            group: "PUSH & PULL" },
+  { value: "fast-crash-zoom-out",   label: "Fast Crash Zoom Out",           group: "PUSH & PULL" },
+  { value: "vertigo-dolly",         label: "Vertigo Dolly Zoom",            group: "PUSH & PULL" },
+  { value: "slow-pull-reveal",      label: "Slow Pull Reveal Background",   group: "PUSH & PULL" },
+  { value: "push-through",          label: "Push Through Subject",          group: "PUSH & PULL" },
+  // Orbit & Rotate
+  { value: "orbit-360-cw",          label: "Orbit 360 Clockwise",           group: "ORBIT & ROTATE" },
+  { value: "orbit-360-ccw",         label: "Orbit 360 Counter-CW",          group: "ORBIT & ROTATE" },
+  { value: "arc-left",              label: "Arc Around Left",               group: "ORBIT & ROTATE" },
+  { value: "arc-right",             label: "Arc Around Right",              group: "ORBIT & ROTATE" },
+  { value: "dutch-tilt-left",       label: "Dutch Angle Tilt Left",         group: "ORBIT & ROTATE" },
+  { value: "dutch-tilt-right",      label: "Dutch Angle Tilt Right",        group: "ORBIT & ROTATE" },
+  { value: "slow-rotate-cw",        label: "Slow Rotate Clockwise",         group: "ORBIT & ROTATE" },
+  { value: "slow-rotate-ccw",       label: "Slow Rotate Counter-CW",        group: "ORBIT & ROTATE" },
+  // Crane & Rise
+  { value: "crane-up",              label: "Crane Up Reveal",               group: "CRANE & RISE" },
+  { value: "crane-down",            label: "Crane Down Descend",            group: "CRANE & RISE" },
+  { value: "rise-reveal",           label: "Rise and Reveal",               group: "CRANE & RISE" },
+  { value: "birds-eye",             label: "Bird's Eye Top Down",           group: "CRANE & RISE" },
+  { value: "overhead-descend",      label: "Overhead Descend Into Scene",   group: "CRANE & RISE" },
+  { value: "pedestal-up",           label: "Pedestal Up Slow",              group: "CRANE & RISE" },
+  { value: "pedestal-down",         label: "Pedestal Down Slow",            group: "CRANE & RISE" },
+  { value: "worms-eye-rise",        label: "Worm's Eye Rise",               group: "CRANE & RISE" },
+  // Track & Follow
+  { value: "tracking-follow",       label: "Tracking Shot Follow",          group: "TRACK & FOLLOW" },
+  { value: "over-shoulder",         label: "Over The Shoulder",             group: "TRACK & FOLLOW" },
+  { value: "lead-follow",           label: "Lead and Follow Subject",       group: "TRACK & FOLLOW" },
+  { value: "parallel-track",        label: "Parallel Tracking",             group: "TRACK & FOLLOW" },
+  { value: "chase-from-behind",     label: "Chase From Behind",             group: "TRACK & FOLLOW" },
+  // Tilt
+  { value: "tilt-up",               label: "Tilt Up Reveal",                group: "TILT" },
+  { value: "tilt-down",             label: "Tilt Down Reveal",              group: "TILT" },
+  { value: "slow-tilt-up",          label: "Slow Tilt Up Majestic",         group: "TILT" },
+  { value: "nod-tilt",              label: "Nod Tilt Agree",                group: "TILT" },
+  // Lateral
+  { value: "slide-left",            label: "Slide Left",                    group: "LATERAL" },
+  { value: "slide-right",           label: "Slide Right",                   group: "LATERAL" },
+  { value: "whip-pan-lr",           label: "Whip Pan Left to Right",        group: "LATERAL" },
+  { value: "whip-pan-rl",           label: "Whip Pan Right to Left",        group: "LATERAL" },
+  { value: "truck-left",            label: "Truck Left Slow",               group: "LATERAL" },
+  { value: "truck-right",           label: "Truck Right Slow",              group: "LATERAL" },
+  // Drone & Aerial
+  { value: "drone-rise-forward",    label: "Drone Rise Forward",            group: "DRONE & AERIAL" },
+  { value: "drone-descend-reveal",  label: "Drone Descend Reveal",          group: "DRONE & AERIAL" },
+  { value: "drone-fly-over",        label: "Drone Fly Over",                group: "DRONE & AERIAL" },
+  { value: "drone-orbit",           label: "Drone Orbit High",              group: "DRONE & AERIAL" },
+  { value: "aerial-establishing",   label: "Aerial Establishing Wide",      group: "DRONE & AERIAL" },
+  // Static
+  { value: "static",                label: "Static Locked Off",             group: "STATIC" },
+  { value: "handheld",              label: "Handheld Intimate",             group: "STATIC" },
+  { value: "low-angle",             label: "Low Angle Ground Level",        group: "STATIC" },
+  { value: "high-angle",            label: "High Angle Looking Down",       group: "STATIC" },
+  { value: "close-up-lock",         label: "Close-Up Locked",               group: "STATIC" },
+  { value: "extreme-close-up",      label: "Extreme Close-Up",              group: "STATIC" },
+  { value: "wide-locked",           label: "Wide Shot Locked",              group: "STATIC" },
+  { value: "slow-breath",           label: "Breathing — Very Subtle Drift", group: "STATIC" },
 ];
 
 const COLOR_GRADES = [
-  { value: "golden-soul",   label: "Golden Soul — Warm Amber Signature",  group: "JEFF M DIXON BRAND" },
-  { value: "midnight-fedora",label: "Midnight Fedora — Noir Black & Gold", group: "JEFF M DIXON BRAND" },
-  { value: "ivory-gospel",  label: "Ivory Gospel — Clean Church Light",   group: "JEFF M DIXON BRAND" },
-  { value: "fresno-gold",   label: "Fresno Gold — California Warm Dust",  group: "JEFF M DIXON BRAND" },
-  { value: "soul-hour",     label: "Soul Hour — Late Evening Amber",       group: "JEFF M DIXON BRAND" },
-  { value: "kodak-500t",    label: "Kodak Vision3 500T",                  group: "CINEMATIC" },
-  { value: "teal-orange",   label: "Teal and Orange — Hollywood",         group: "CINEMATIC" },
-  { value: "warm-rnb",      label: "Warm RnB — Smooth Amber",             group: "MUSIC VIDEO" },
-  { value: "gospel-light",  label: "Gospel Light — Divine White",         group: "MUSIC VIDEO" },
-  { value: "golden-hour",   label: "Golden Hour — Sunset Warm",           group: "NATURAL" },
+  // Off
+  { value: "none",            label: "Off — No Color Grade",               group: "─── OFF ───" },
+  // Jeff M Dixon Brand
+  { value: "golden-soul",     label: "Golden Soul — Warm Amber Signature", group: "JEFF M DIXON BRAND" },
+  { value: "midnight-fedora", label: "Midnight Fedora — Noir Black & Gold",group: "JEFF M DIXON BRAND" },
+  { value: "ivory-gospel",    label: "Ivory Gospel — Clean Church Light",  group: "JEFF M DIXON BRAND" },
+  { value: "fresno-gold",     label: "Fresno Gold — California Warm Dust", group: "JEFF M DIXON BRAND" },
+  { value: "soul-hour",       label: "Soul Hour — Late Evening Amber",     group: "JEFF M DIXON BRAND" },
+  { value: "mint-memory",     label: "Mint Memory — Cool Teal Reflection", group: "JEFF M DIXON BRAND" },
+  // Cinematic
+  { value: "kodak-500t",      label: "Kodak Vision3 500T — Film Grain",    group: "CINEMATIC" },
+  { value: "teal-orange",     label: "Teal + Orange — Hollywood",          group: "CINEMATIC" },
+  { value: "bleach-bypass",   label: "Bleach Bypass — Desaturated Grit",   group: "CINEMATIC" },
+  { value: "anamorphic-blue", label: "Anamorphic Blue — Lens Flare Wide",  group: "CINEMATIC" },
+  { value: "new-hollywood",   label: "New Hollywood — 70s Warm Fade",      group: "CINEMATIC" },
+  { value: "noir",            label: "Noir — High Contrast B&W",           group: "CINEMATIC" },
+  { value: "neon-night",      label: "Neon Night — Cyberpunk Glow",        group: "CINEMATIC" },
+  { value: "venice-haze",     label: "Venice Haze — Faded Pastel",         group: "CINEMATIC" },
+  // Music Video
+  { value: "warm-rnb",        label: "Warm RnB — Smooth Amber",            group: "MUSIC VIDEO" },
+  { value: "gospel-light",    label: "Gospel Light — Divine White",        group: "MUSIC VIDEO" },
+  { value: "trap-dark",       label: "Trap Dark — Deep Shadow Moody",      group: "MUSIC VIDEO" },
+  { value: "neo-soul-sunset", label: "Neo Soul Sunset — Purple to Gold",   group: "MUSIC VIDEO" },
+  { value: "urban-steel",     label: "Urban Steel — Cold + Sharp",         group: "MUSIC VIDEO" },
+  // Natural
+  { value: "golden-hour",     label: "Golden Hour — Sunset Warm",          group: "NATURAL" },
+  { value: "blue-hour",       label: "Blue Hour — Twilight Cool",          group: "NATURAL" },
+  { value: "overcast-soft",   label: "Overcast Soft — Even Flat Light",    group: "NATURAL" },
+  { value: "forest-green",    label: "Forest Green — Lush Cool Dapple",    group: "NATURAL" },
+  { value: "desert-dust",     label: "Desert Dust — Dry Warm Haze",        group: "NATURAL" },
 ];
 
 const ASPECT_RATIOS = ["9:16", "16:9", "1:1", "4:5", "2.35:1"];
@@ -175,7 +231,7 @@ export default function VideoGeneration() {
   const [duration, setDuration]     = useState(5);
   const [quality, setQuality]       = useState(2);
   const [aspectRatio, setAspectRatio] = useState("16:9");
-  const [colorGrade, setColorGrade] = useState("golden-soul");
+  const [colorGrade, setColorGrade] = useState("none");
 
   // Image input state
   const [imageUrl, setImageUrl]         = useState("");
@@ -240,7 +296,7 @@ export default function VideoGeneration() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
-          prompt: `${prompt}. Camera: ${cameraMove}. Color grade: ${colorGrade}.`,
+          prompt: [prompt, `Camera: ${cameraMove}`, colorGrade !== "none" ? `Color grade: ${colorGrade}` : ""].filter(Boolean).join(". "),
           duration,
           quality: QUALITY_LABELS[quality],
           aspectRatio,
