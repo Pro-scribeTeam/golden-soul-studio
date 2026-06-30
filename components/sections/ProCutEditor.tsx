@@ -47,6 +47,7 @@ interface Clip {
   colorGrade?: string;
   volume?: number;   // 0–200
   muted?: boolean;
+  transition?: string; // transition at start of clip: crossfade|dip|flash|wipe|zoom
 }
 interface Track {
   id: string; type: "video"|"audio"|"text";
@@ -63,6 +64,28 @@ const INIT_TRACKS: Track[] = [
 ];
 const PLATFORMS = ["YouTube","YouTube Shorts","Instagram Feed","Instagram Reels","TikTok","Facebook","Vimeo","Custom"];
 const COLOR_PRESETS = ["Golden Soul","Midnight Fedora","Ivory Gospel","Golden Hour","Teal + Orange","Film Noir","Cinematic Blue","Warm Vintage","VHS Retro","Music Video"];
+const COLOR_GRADE_FILTERS: Record<string,string> = {
+  "Golden Soul":     "sepia(0.35) saturate(1.4) hue-rotate(8deg) brightness(1.05)",
+  "Midnight Fedora": "contrast(1.45) brightness(0.82) saturate(0.65)",
+  "Ivory Gospel":    "sepia(0.2) brightness(1.12) saturate(0.88) contrast(1.05)",
+  "Golden Hour":     "sepia(0.55) saturate(1.6) hue-rotate(12deg) brightness(1.1)",
+  "Teal + Orange":   "saturate(1.7) hue-rotate(-12deg) contrast(1.1)",
+  "Film Noir":       "grayscale(0.85) contrast(1.55) brightness(0.88)",
+  "Cinematic Blue":  "saturate(0.75) hue-rotate(195deg) brightness(0.92) contrast(1.1)",
+  "Warm Vintage":    "sepia(0.6) saturate(1.25) brightness(1.06) contrast(0.95)",
+  "VHS Retro":       "contrast(1.25) saturate(1.45) hue-rotate(-8deg) brightness(1.02)",
+  "Music Video":     "contrast(1.35) saturate(1.55) brightness(1.06)",
+};
+
+const TRANSITIONS = [
+  {name:"Cut",       desc:"Instant hard cut (default)"},
+  {name:"Crossfade", desc:"Smooth dissolve between clips"},
+  {name:"Dip Black", desc:"Fade to/from black"},
+  {name:"Flash",     desc:"White flash cut"},
+  {name:"Wipe",      desc:"Horizontal wipe left to right"},
+  {name:"Zoom In",   desc:"Punch-in zoom cut"},
+];
+
 const EFFECTS = [
   { name:"Motion Blur",      cat:"Motion"     },
   { name:"Gaussian Blur",    cat:"Blur"       },
@@ -130,9 +153,16 @@ function ToolBtn({ icon:Icon, label, kbd, active, onClick }: {
   active?:boolean; onClick?:()=>void;
 }) {
   const [h,setH]=useState(false);
+  const [pos,setPos]=useState({top:0,left:0});
   return (
     <div style={{position:"relative"}}>
-      <button onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+      <button
+        onMouseEnter={e=>{
+          setH(true);
+          const r=e.currentTarget.getBoundingClientRect();
+          setPos({top:r.top+r.height/2, left:r.right+10});
+        }}
+        onMouseLeave={()=>setH(false)}
         onClick={onClick}
         style={{
           width:40, height:40, borderRadius:8, border:"1px solid transparent",
@@ -150,16 +180,19 @@ function ToolBtn({ icon:Icon, label, kbd, active, onClick }: {
       </button>
       {h && (
         <div style={{
-          position:"absolute", left:"calc(100% + 10px)", top:"50%",
-          transform:"translateY(-50%)", zIndex:200,
+          position:"fixed", left:pos.left, top:pos.top,
+          transform:"translateY(-50%)", zIndex:9999,
           background:"#1A1A1A", border:`1px solid ${C.border}`,
-          borderRadius:6, padding:"4px 8px", whiteSpace:"nowrap",
+          borderRadius:6, padding:"4px 10px", whiteSpace:"nowrap",
           fontSize:11, color:C.text,
           display:"flex", gap:6, alignItems:"center",
-          pointerEvents:"none",
+          pointerEvents:"none", boxShadow:"0 4px 12px #00000088",
         }}>
           {label}
-          {kbd && <span style={{color:C.muted, fontSize:10}}>{kbd}</span>}
+          {kbd && <span style={{
+            color:C.muted, fontSize:9,
+            background:"#2A2A2A", borderRadius:3, padding:"1px 5px",
+          }}>{kbd}</span>}
         </div>
       )}
     </div>
@@ -441,6 +474,24 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     }
   },[playing, playhead, activeAudioClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Apply clip speed to video playback rate
+  useEffect(()=>{
+    const vid=videoRef.current;
+    if(!vid) return;
+    vid.playbackRate = activeVideoClip?.speed ? activeVideoClip.speed/100 : 1;
+  },[activeVideoClip?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply clip volume/mute to video element
+  useEffect(()=>{
+    const vid=videoRef.current;
+    if(!vid) return;
+    vid.volume = Math.min(1, (activeVideoClip?.volume ?? 100) / 100);
+    vid.muted = activeVideoClip?.muted ?? false;
+  },[activeVideoClip?.volume, activeVideoClip?.muted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const videoFilter = activeVideoClip?.colorGrade ? (COLOR_GRADE_FILTERS[activeVideoClip.colorGrade] ?? "") : "";
+  const videoOpacity = (activeVideoClip?.opacity ?? 100) / 100;
+
   const handleWave=(e:React.MouseEvent)=>{
     if(!wRef.current) return;
     const r=wRef.current.getBoundingClientRect();
@@ -461,6 +512,9 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
             position:"absolute", inset:0, width:"100%", height:"100%",
             objectFit:"contain", background:"#000",
             display: hasVideo ? "block" : "none",
+            filter: videoFilter || undefined,
+            opacity: videoOpacity,
+            transition:"filter 0.3s, opacity 0.3s",
           }}
         />
         {/* Placeholder when no video clip at playhead */}
@@ -570,13 +624,14 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
   storyText:string; setStoryText:(v:string)=>void;
   assets:Asset[]; setAssets:React.Dispatch<React.SetStateAction<Asset[]>>;
   onUpdateClip:(id:string, updates:Partial<Clip>)=>void;
   onAddClip:(name:string)=>void;
+  onDetachAudio:()=>void;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -613,7 +668,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
       {/* Tab content */}
       <div style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column"}}>
         {activeTab==="assets"    && <AssetsTab assets={assets} setAssets={setAssets}/>}
-        {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
+        {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip} onDetachAudio={onDetachAudio}/>}
         {activeTab==="effects"   && <EffectsTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
         {activeTab==="color"     && <ColorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
         {activeTab==="audio"     && <AudioTab/>}
@@ -630,6 +685,28 @@ interface HistoryItem { id:string; section:string; model:string; prompt?:string;
 
 function sectionToType(s:string): "video"|"image" {
   return (s==="video"||s==="motion"||s==="lipsync") ? "video" : "image";
+}
+
+function extractVideoThumb(url:string): Promise<string> {
+  return new Promise(resolve=>{
+    const video=document.createElement("video");
+    video.crossOrigin="anonymous";
+    video.preload="metadata";
+    video.muted=true;
+    video.src=url;
+    const draw=()=>{
+      try {
+        const canvas=document.createElement("canvas");
+        canvas.width=320; canvas.height=180;
+        canvas.getContext("2d")?.drawImage(video,0,0,320,180);
+        resolve(canvas.toDataURL("image/jpeg",0.75));
+      } catch { resolve(""); }
+    };
+    video.addEventListener("loadedmetadata",()=>{ video.currentTime=0.5; },{once:true});
+    video.addEventListener("seeked",draw,{once:true});
+    video.addEventListener("error",()=>resolve(""),{once:true});
+    video.load();
+  });
 }
 
 function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Dispatch<React.SetStateAction<Asset[]>>; }) {
@@ -654,7 +731,7 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
 
   useEffect(()=>{ if(view==="history") loadHistory(); },[view,loadHistory]);
 
-  const handleFiles=(e:React.ChangeEvent<HTMLInputElement>)=>{
+  const handleFiles=async(e:React.ChangeEvent<HTMLInputElement>)=>{
     const files=Array.from(e.target.files||[]);
     const newOnes:Asset[]=files.map(f=>{
       const type=detectFileType(f);
@@ -665,8 +742,16 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
         url: URL.createObjectURL(f),
       };
     });
+    // Optimistically add assets first so UI responds immediately
     setAssets(p=>[...p,...newOnes]);
     e.target.value="";
+    // Then extract first-frame thumbnails for videos in background
+    for(const asset of newOnes){
+      if(asset.type==="video"&&asset.url){
+        const thumb=await extractVideoThumb(asset.url);
+        if(thumb) setAssets(p=>p.map(a=>a.url===asset.url&&!a.thumb?{...a,thumb}:a));
+      }
+    }
   };
 
   const importFromHistory=(item:HistoryItem)=>{
@@ -898,7 +983,11 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
 }
 
 // ── Tab: Inspector ─────────────────────────────────────────────────────────
-function InspectorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:string,updates:Partial<Clip>)=>void }) {
+function InspectorTab({ clip, onUpdateClip, onDetachAudio }: {
+  clip:Clip|null;
+  onUpdateClip:(id:string,updates:Partial<Clip>)=>void;
+  onDetachAudio?:()=>void;
+}) {
   if (!clip) return (
     <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
       <p style={{fontSize:11, color:C.muted, textAlign:"center"}}>
@@ -959,6 +1048,21 @@ function InspectorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id
       {appliedFx.length>0 && (
         <div style={{marginTop:10, padding:"6px 8px", background:"#0D1A0D", borderRadius:6, border:`1px solid ${C.teal}33`}}>
           <p style={{fontSize:9, color:C.teal, margin:0}}>Applied: {appliedFx.join(", ")}</p>
+        </div>
+      )}
+      {clip.type==="video"&&clip.url&&onDetachAudio&&(
+        <div style={{marginTop:16}}>
+          <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>AUDIO</p>
+          <button onClick={onDetachAudio} style={{
+            width:"100%", padding:"6px 8px", borderRadius:6, cursor:"pointer", fontSize:10,
+            background:"transparent", border:`1px solid ${C.border}`,
+            color:C.muted, display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+          }}>
+            <Music size={11}/> Detach Audio to Music Track
+          </button>
+          {clip.muted&&(
+            <p style={{fontSize:9,color:C.teal,margin:"4px 0 0",textAlign:"center"}}>Audio detached — playing on Music track</p>
+          )}
         </div>
       )}
     </div>
@@ -1026,6 +1130,37 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
             </div>
           );
         })}
+
+        {/* Transitions */}
+        <div style={{marginTop:14, paddingTop:10, borderTop:`1px solid ${C.border}`}}>
+          <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0", letterSpacing:"0.05em"}}>TRANSITIONS</p>
+          {!clip&&<p style={{fontSize:10,color:`${C.muted}88`,margin:0}}>Select a clip to add a transition</p>}
+          {TRANSITIONS.map(t=>{
+            const active=clip?.transition===t.name;
+            return (
+              <div key={t.name} style={{
+                display:"flex", alignItems:"center",
+                padding:"7px 8px", borderRadius:7, marginBottom:3,
+                border:`1px solid ${active?C.gold+"44":C.border}`,
+                background: active?"#1A1400":"#0D0D0D",
+              }}>
+                <div style={{flex:1}}>
+                  <p style={{fontSize:11, color:active?C.gold:C.text, margin:0}}>{t.name}</p>
+                  <p style={{fontSize:9, color:C.muted, margin:0}}>{t.desc}</p>
+                </div>
+                <button
+                  disabled={!clip}
+                  onClick={()=>{ if(!clip) return; onUpdateClip(clip.id,{transition:active?undefined:t.name}); }}
+                  style={{
+                    padding:"3px 8px", borderRadius:5, fontSize:10, cursor:clip?"pointer":"default",
+                    background: active?`${C.red}22`:`${C.gold}22`,
+                    border:`1px solid ${active?C.red+"44":C.gold+"44"}`,
+                    color: active?C.red:C.gold,
+                  }}>{active?"Remove":"Set"}</button>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -1765,6 +1900,32 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                           fontSize:8, color:C.text, opacity:0.85,
                           whiteSpace:"nowrap", pointerEvents:"none",
                         }}>{clip.name}</span>
+                        {/* Applied FX badge */}
+                        {(clip.effects?.length||clip.colorGrade)&&(
+                          <span style={{
+                            position:"absolute", bottom:3, left:5,
+                            fontSize:7, color:C.gold, background:"#0A0A0A99",
+                            padding:"1px 4px", borderRadius:3, pointerEvents:"none",
+                          }}>
+                            {[clip.colorGrade?"C":null, clip.effects?.length?`FX${clip.effects.length}`:null].filter(Boolean).join(" ")}
+                          </span>
+                        )}
+                        {/* Muted indicator */}
+                        {clip.muted&&(
+                          <span style={{
+                            position:"absolute", bottom:3, right:8,
+                            fontSize:7, color:C.red, background:"#0A0A0A99",
+                            padding:"1px 4px", borderRadius:3, pointerEvents:"none",
+                          }}>M</span>
+                        )}
+                        {/* Transition marker at clip start */}
+                        {clip.transition&&(
+                          <div style={{
+                            position:"absolute", left:0, top:0, bottom:0, width:6,
+                            background:`linear-gradient(to right, ${C.gold}88, transparent)`,
+                            pointerEvents:"none",
+                          }} title={`Transition: ${clip.transition}`}/>
+                        )}
                         {/* Trim handles */}
                         <div
                           onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
@@ -2049,6 +2210,29 @@ export default function ProCutEditor() {
     }]);
   },[playhead]);
 
+  // Detach audio from selected video clip → creates audio clip on music track
+  const detachAudio=useCallback(()=>{
+    if(!selectedId) return;
+    const clip=clips.find(c=>c.id===selectedId);
+    if(!clip||clip.type!=="video"||!clip.url) return;
+    snapshot();
+    const audioTrack=tracks.find(t=>t.type==="audio")||tracks[0];
+    setClips(p=>[
+      ...p.map(c=>c.id===clip.id?{...c,muted:true}:c),
+      {
+        id:`c${Date.now()}`,
+        trackId:audioTrack.id,
+        name:`${clip.name} (Audio)`,
+        start:clip.start,
+        duration:clip.duration,
+        type:"audio" as const,
+        src:clip.src,
+        url:clip.url,
+        volume:100,
+      },
+    ]);
+  },[selectedId,clips,snapshot,tracks]);
+
   const cutClip=useCallback(()=>{
     if(!selectedId) return;
     const clip=clips.find(c=>c.id===selectedId);
@@ -2145,6 +2329,7 @@ export default function ProCutEditor() {
           storyText={storyText} setStoryText={setStoryText}
           assets={assets} setAssets={setAssets}
           onUpdateClip={updateClip} onAddClip={addTextClip}
+          onDetachAudio={detachAudio}
         />
         <Timeline
           tracks={tracks} clips={clips} setClips={setClips}
