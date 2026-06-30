@@ -442,11 +442,12 @@ function ToolsPanel({ tool, setTool, onTab, onImport }: {
 }
 
 // ── ZONE 3: Preview Window ─────────────────────────────────────────────────
-function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration }: {
+function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration, onToggleMax, isMaximized }: {
   clips:Clip[];
   playhead:number; setPlayhead:(t:number)=>void;
   playing:boolean; setPlaying:(v:boolean)=>void;
   narrative:boolean; duration:number;
+  onToggleMax:()=>void; isMaximized:boolean;
 }) {
   const wRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -573,7 +574,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const hasVideo = !!activeVideoClip?.url;
 
   return (
-    <div style={{gridColumn:"2", gridRow:"2", background:"#000", display:"flex", flexDirection:"column"}}>
+    <div style={{flex:1, background:"#000", display:"flex", flexDirection:"column", minWidth:0}}>
       {/* Canvas */}
       <div style={{flex:1, background:"#050505", position:"relative", overflow:"hidden"}}>
         {/* Audio element for audio-only clips */}
@@ -644,9 +645,16 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
           {narrative ? <Film size={11}/> : <AlertTriangle size={11}/>}
           {narrative ? "Music Video — Triumphant" : "No Story Context"}
         </div>
-        {/* Timecode */}
-        <div style={{position:"absolute", top:10, right:10, fontSize:10, color:`${C.muted}77`, fontFamily:"monospace"}}>
-          {fmtTC(playhead)}
+        {/* Timecode + maximize toggle */}
+        <div style={{position:"absolute", top:8, right:8, display:"flex", alignItems:"center", gap:6}}>
+          <span style={{fontSize:10, color:`${C.muted}77`, fontFamily:"monospace"}}>{fmtTC(playhead)}</span>
+          <button onClick={onToggleMax} title={isMaximized?"Restore panel":"Maximize preview"} style={{
+            width:22, height:22, borderRadius:4, background:"#00000088",
+            border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer",
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>
+            <Maximize2 size={11}/>
+          </button>
         </div>
       </div>
 
@@ -1906,7 +1914,7 @@ function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
 // ── ZONE 5: Timeline ───────────────────────────────────────────────────────
 const LABEL_W=160, TRACK_H=58, AUDIO_H=46;
 
-function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedIds, setSelectedIds, primaryId, setPrimaryId, duration, snapshot, onToggleTrack, onAddTrack, onUpdateClip }: {
+function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedIds, setSelectedIds, primaryId, setPrimaryId, duration, snapshot, onToggleTrack, onAddTrack, onUpdateClip, onVResizeStart }: {
   tracks:Track[]; clips:Clip[]; setClips:React.Dispatch<React.SetStateAction<Clip[]>>;
   tool:Tool;
   playhead:number; setPlayhead:(t:number)=>void;
@@ -1918,6 +1926,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   onToggleTrack:(id:string, prop:"muted"|"locked"|"visible")=>void;
   onAddTrack:()=>void;
   onUpdateClip:(id:string, updates:Partial<Clip>)=>void;
+  onVResizeStart:(e:React.MouseEvent)=>void;
 }) {
   const rulerRef=useRef<HTMLDivElement>(null);
   const scrollRef=useRef<HTMLDivElement>(null);
@@ -2153,9 +2162,19 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     <>
     <div style={{
       gridColumn:"1/-1", gridRow:"3",
-      background:C.bg, borderTop:`1px solid ${C.border}`,
-      display:"flex", flexDirection:"column", overflow:"hidden",
+      background:C.bg, display:"flex", flexDirection:"column", overflow:"hidden",
     }}>
+      {/* Vertical resize handle */}
+      <div
+        onMouseDown={onVResizeStart}
+        style={{
+          height:5, cursor:"row-resize", flexShrink:0,
+          background:"transparent", borderTop:`1px solid ${C.border}`,
+          transition:"border-color 0.15s",
+        }}
+        onMouseEnter={e=>(e.currentTarget.style.borderTopColor=C.gold)}
+        onMouseLeave={e=>(e.currentTarget.style.borderTopColor=C.border)}
+      />
       {/* Toolbar */}
       <div style={{
         height:30, background:C.panel, borderBottom:`1px solid ${C.border}`,
@@ -2607,6 +2626,28 @@ export default function ProCutEditor() {
   const [playhead,setPlayhead]=useState(0);
   const [playing,setPlaying]=useState(false);
   const [zoom,setZoom]=useState(80);
+  const [inspectorW,setInspectorW]=useState(320);
+  const [timelineH,setTimelineH]=useState(280);
+  const [previewMax,setPreviewMax]=useState(false);
+  const hResizeRef=useRef<{startX:number;startW:number}|null>(null);
+  const vResizeRef=useRef<{startY:number;startH:number}|null>(null);
+
+  useEffect(()=>{
+    const move=(e:MouseEvent)=>{
+      if(hResizeRef.current){
+        const delta=hResizeRef.current.startX-e.clientX;
+        setInspectorW(Math.max(200,Math.min(600,hResizeRef.current.startW+delta)));
+      }
+      if(vResizeRef.current){
+        const delta=vResizeRef.current.startY-e.clientY;
+        setTimelineH(Math.max(160,Math.min(520,vResizeRef.current.startH+delta)));
+      }
+    };
+    const up=()=>{ hResizeRef.current=null; vResizeRef.current=null; };
+    window.addEventListener("mousemove",move);
+    window.addEventListener("mouseup",up);
+    return()=>{ window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); };
+  },[]);
   const [showExport,setShowExport]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [selectedIds,setSelectedIds]=useState<Set<string>>(new Set());
@@ -2779,8 +2820,8 @@ export default function ProCutEditor() {
         style={{display:"none"}} onChange={handleImportFiles}/>
       <div style={{
         display:"grid",
-        gridTemplateColumns:"72px 1fr 320px",
-        gridTemplateRows:"52px 1fr 280px",
+        gridTemplateColumns:`72px 1fr ${previewMax?0:inspectorW}px`,
+        gridTemplateRows:`52px 1fr ${timelineH}px`,
         width:"100%", height:"100vh",
         background:C.bg, overflow:"hidden",
         fontFamily:"'Inter', system-ui, sans-serif",
@@ -2794,12 +2835,33 @@ export default function ProCutEditor() {
           hasSelection={selectedIds.size>0} canPaste={clipboard.length>0}
         />
         <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab} onImport={()=>{ setActiveTab("assets"); importFileRef.current?.click(); }}/>
-        <PreviewWindow
-          clips={clips}
-          playhead={playhead} setPlayhead={setPlayhead}
-          playing={playing} setPlaying={setPlaying}
-          narrative={narrative} duration={duration}
-        />
+        {/* Preview + horizontal resize handle */}
+        <div style={{gridColumn:"2", gridRow:"2", display:"flex", position:"relative", overflow:"hidden"}}>
+          <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0}}>
+            <PreviewWindow
+              clips={clips}
+              playhead={playhead} setPlayhead={setPlayhead}
+              playing={playing} setPlaying={setPlaying}
+              narrative={narrative} duration={duration}
+              onToggleMax={()=>setPreviewMax(p=>!p)}
+              isMaximized={previewMax}
+            />
+          </div>
+          {/* Horizontal resize handle (drag left edge of inspector) */}
+          {!previewMax && (
+            <div
+              onMouseDown={e=>{hResizeRef.current={startX:e.clientX,startW:inspectorW};}}
+              style={{
+                width:5, flexShrink:0, cursor:"col-resize",
+                background:"transparent",
+                borderLeft:`1px solid ${C.border}`,
+                transition:"border-color 0.15s",
+              }}
+              onMouseEnter={e=>(e.currentTarget.style.borderLeftColor=C.gold)}
+              onMouseLeave={e=>(e.currentTarget.style.borderLeftColor=C.border)}
+            />
+          )}
+        </div>
         <InspectorPanel
           activeTab={activeTab} setActiveTab={setActiveTab}
           selectedClip={selectedClip}
@@ -2824,6 +2886,7 @@ export default function ProCutEditor() {
           onToggleTrack={toggleTrackProp}
           onAddTrack={addTrack}
           onUpdateClip={updateClip}
+          onVResizeStart={e=>{vResizeRef.current={startY:e.clientY,startH:timelineH};}}
         />
       </div>
 
