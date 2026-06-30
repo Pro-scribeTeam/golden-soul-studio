@@ -670,7 +670,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio, tracks, allClips, onToggleTrack }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio, tracks, allClips, onToggleTrack, playhead }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
   storyText:string; setStoryText:(v:string)=>void;
@@ -680,6 +680,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
   onDetachAudio:()=>void;
   tracks:Track[]; allClips:Clip[];
   onToggleTrack:(id:string,prop:"muted"|"locked"|"visible")=>void;
+  playhead:number;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -716,7 +717,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
       {/* Tab content */}
       <div style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column"}}>
         {activeTab==="assets"    && <AssetsTab assets={assets} setAssets={setAssets}/>}
-        {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip} onDetachAudio={onDetachAudio}/>}
+        {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip} onDetachAudio={onDetachAudio} playhead={playhead}/>}
         {activeTab==="effects"   && <EffectsTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
         {activeTab==="color"     && <ColorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
         {activeTab==="audio"     && <AudioTab tracks={tracks} allClips={allClips} onUpdateClip={onUpdateClip} onToggleTrack={onToggleTrack}/>}
@@ -1031,10 +1032,11 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
 }
 
 // ── Tab: Inspector ─────────────────────────────────────────────────────────
-function InspectorTab({ clip, onUpdateClip, onDetachAudio }: {
+function InspectorTab({ clip, onUpdateClip, onDetachAudio, playhead }: {
   clip:Clip|null;
   onUpdateClip:(id:string,updates:Partial<Clip>)=>void;
   onDetachAudio?:()=>void;
+  playhead:number;
 }) {
   if (!clip) return (
     <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
@@ -1061,6 +1063,13 @@ function InspectorTab({ clip, onUpdateClip, onDetachAudio }: {
           <span style={{fontSize:11, color:C.text}}>{v}</span>
         </div>
       ))}
+      <button onClick={()=>onUpdateClip(clip.id,{start:Math.round(playhead*10)/10})} style={{
+        width:"100%", padding:"6px 8px", borderRadius:6, cursor:"pointer", fontSize:10,
+        background:`${C.gold}11`, border:`1px solid ${C.gold}44`,
+        color:C.gold, display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:10,
+      }}>
+        <Move size={11}/> Snap to Playhead ({fmtTC(playhead)})
+      </button>
       <div style={{marginTop:10}}>
         <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>SPEED (%)</p>
         <input type="number" min={10} max={400} value={speed}
@@ -1643,6 +1652,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const [slipDrag,setSlipDrag]=useState<{clipId:string;startX:number;origInPoint:number}|null>(null);
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
   const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number}|null>(null);
+  const [playheadDrag,setPlayheadDrag]=useState(false);
   const totalPx=Math.max(duration*zoom+200, 600);
 
   // Slip tool — drag shifts inPoint
@@ -1710,6 +1720,21 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     window.addEventListener("mouseup",up);
     return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
   },[trimDrag,zoom,setClips]);
+
+  // Playhead drag on ruler
+  useEffect(()=>{
+    if(!playheadDrag) return;
+    const move=(e:MouseEvent)=>{
+      if(!rulerRef.current) return;
+      const r=rulerRef.current.getBoundingClientRect();
+      const scrollX=scrollRef.current?.scrollLeft??0;
+      setPlayhead(Math.max(0,Math.min(duration,(e.clientX-r.left+scrollX)/zoom)));
+    };
+    const up=()=>setPlayheadDrag(false);
+    window.addEventListener("mousemove",move);
+    window.addEventListener("mouseup",up);
+    return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+  },[playheadDrag,zoom,duration,setPlayhead]);
 
   // Drop from assets panel
   const handleDrop=(e:React.DragEvent<HTMLDivElement>, track:Track)=>{
@@ -1918,11 +1943,11 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         <div ref={scrollRef} onMouseDown={handleLaneMouseDown} style={{flex:1, overflowX:"auto", overflowY:"auto", position:"relative", cursor:laneCursor}}>
           <div style={{minWidth:totalPx, position:"relative"}}>
             {/* Ruler */}
-            <div ref={rulerRef} onClick={clickRuler} style={{
+            <div ref={rulerRef} onMouseDown={e=>{clickRuler(e);setPlayheadDrag(true);}} style={{
               height:26, background:"#0C0C0C",
               borderBottom:`1px solid ${C.border}`,
               position:"sticky", top:0, zIndex:10,
-              cursor:"crosshair",
+              cursor:"col-resize",
             }}>
               {ticks.map(i=>(
                 <div key={i} style={{
@@ -1946,6 +1971,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                   borderLeft:"5px solid transparent",
                   borderRight:"5px solid transparent",
                   borderTop:`8px solid ${C.gold}`,
+                  pointerEvents:"auto", cursor:"col-resize",
                 }}/>
               </div>
             </div>
@@ -2452,6 +2478,7 @@ export default function ProCutEditor() {
           onUpdateClip={updateClip} onAddClip={addTextClip}
           onDetachAudio={detachAudio}
           tracks={tracks} allClips={clips} onToggleTrack={toggleTrackProp}
+          playhead={playhead}
         />
         <Timeline
           tracks={tracks} clips={clips} setClips={setClips}
