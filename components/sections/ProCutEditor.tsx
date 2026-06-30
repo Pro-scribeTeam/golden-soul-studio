@@ -47,7 +47,8 @@ interface Clip {
   colorGrade?: string;
   volume?: number;   // 0–200
   muted?: boolean;
-  transition?: string; // transition at start of clip: crossfade|dip|flash|wipe|zoom
+  transition?: string;     // transition at start of clip
+  transitionDuration?: number; // seconds, default 1.0
 }
 interface Track {
   id: string; type: "video"|"audio"|"text";
@@ -85,6 +86,24 @@ const TRANSITIONS = [
   {name:"Wipe",      desc:"Horizontal wipe left to right"},
   {name:"Zoom In",   desc:"Punch-in zoom cut"},
 ];
+
+function getClipCSSFilter(clip:Clip|null):string {
+  if(!clip) return "";
+  const parts:string[]=[];
+  if(clip.colorGrade){const f=COLOR_GRADE_FILTERS[clip.colorGrade];if(f)parts.push(f);}
+  const fx=clip.effects??[];
+  if(fx.includes("Gaussian Blur"))    parts.push("blur(2px)");
+  if(fx.includes("Motion Blur"))      parts.push("blur(1.5px)");
+  if(fx.includes("Sharpen"))          parts.push("contrast(1.4) brightness(1.05)");
+  if(fx.includes("Glow Bloom"))       parts.push("brightness(1.35) saturate(1.5)");
+  if(fx.includes("Chromatic Aberr.")) parts.push("saturate(1.6) hue-rotate(6deg)");
+  if(fx.includes("VHS Tracking"))     parts.push("contrast(1.2) saturate(1.4) brightness(1.05)");
+  if(fx.includes("Pixel Sort"))       parts.push("saturate(2.2) hue-rotate(35deg) contrast(1.3)");
+  if(fx.includes("Film Burn"))        parts.push("sepia(0.8) saturate(1.8) brightness(1.2)");
+  if(fx.includes("God Ray"))          parts.push("brightness(1.4) saturate(1.2)");
+  if(fx.includes("Anamorphic Flare")) parts.push("brightness(1.15) contrast(1.05)");
+  return parts.join(" ");
+}
 
 const EFFECTS = [
   { name:"Motion Blur",      cat:"Motion"     },
@@ -489,8 +508,19 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     vid.muted = activeVideoClip?.muted ?? false;
   },[activeVideoClip?.volume, activeVideoClip?.muted]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const videoFilter = activeVideoClip?.colorGrade ? (COLOR_GRADE_FILTERS[activeVideoClip.colorGrade] ?? "") : "";
+  // Apply audio clip volume/mute to audio element
+  useEffect(()=>{
+    const aud=audioRef.current;
+    if(!aud) return;
+    aud.volume = Math.min(1, (activeAudioClip?.volume ?? 100) / 100);
+    aud.muted = activeAudioClip?.muted ?? false;
+  },[activeAudioClip?.volume, activeAudioClip?.muted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const videoFilter = getClipCSSFilter(activeVideoClip);
   const videoOpacity = (activeVideoClip?.opacity ?? 100) / 100;
+  const hasVignette = activeVideoClip?.effects?.includes("Vignette");
+  const hasGrain = activeVideoClip?.effects?.includes("Film Grain");
+  const hasChromatic = activeVideoClip?.effects?.includes("Chromatic Aberr.");
 
   const handleWave=(e:React.MouseEvent)=>{
     if(!wRef.current) return;
@@ -543,6 +573,22 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
               )}
             </div>
           </div>
+        )}
+        {/* Vignette overlay */}
+        {hasVignette && (
+          <div style={{position:"absolute",inset:0,pointerEvents:"none",
+            background:"radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,0.78) 100%)"}}/>
+        )}
+        {/* Film grain overlay */}
+        {hasGrain && (
+          <div style={{position:"absolute",inset:0,pointerEvents:"none",opacity:0.18,
+            backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+            backgroundSize:"200px 200px"}}/>
+        )}
+        {/* Chromatic aberration overlay */}
+        {hasChromatic && (
+          <div style={{position:"absolute",inset:0,pointerEvents:"none",
+            boxShadow:"inset 3px 0 0 rgba(255,0,0,0.18), inset -3px 0 0 rgba(0,0,255,0.18)"}}/>
         )}
         {/* Narrative badge */}
         <div style={{
@@ -624,7 +670,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio, tracks, allClips, onToggleTrack }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
   storyText:string; setStoryText:(v:string)=>void;
@@ -632,6 +678,8 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
   onUpdateClip:(id:string, updates:Partial<Clip>)=>void;
   onAddClip:(name:string)=>void;
   onDetachAudio:()=>void;
+  tracks:Track[]; allClips:Clip[];
+  onToggleTrack:(id:string,prop:"muted"|"locked"|"visible")=>void;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -671,7 +719,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
         {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip} onDetachAudio={onDetachAudio}/>}
         {activeTab==="effects"   && <EffectsTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
         {activeTab==="color"     && <ColorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
-        {activeTab==="audio"     && <AudioTab/>}
+        {activeTab==="audio"     && <AudioTab tracks={tracks} allClips={allClips} onUpdateClip={onUpdateClip} onToggleTrack={onToggleTrack}/>}
         {activeTab==="text"      && <TextTab onAddClip={onAddClip}/>}
         {activeTab==="story"     && <StoryTab narrative={narrative} setNarrative={setNarrative} storyText={storyText} setStoryText={setStoryText}/>}
       </div>
@@ -1135,15 +1183,23 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
         <div style={{marginTop:14, paddingTop:10, borderTop:`1px solid ${C.border}`}}>
           <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0", letterSpacing:"0.05em"}}>TRANSITIONS</p>
           {!clip&&<p style={{fontSize:10,color:`${C.muted}88`,margin:0}}>Select a clip to add a transition</p>}
+          <p style={{fontSize:9,color:`${C.muted}88`,margin:"0 0 6px 0"}}>Drag onto a clip or click Set</p>
           {TRANSITIONS.map(t=>{
             const active=clip?.transition===t.name;
             return (
-              <div key={t.name} style={{
-                display:"flex", alignItems:"center",
-                padding:"7px 8px", borderRadius:7, marginBottom:3,
-                border:`1px solid ${active?C.gold+"44":C.border}`,
-                background: active?"#1A1400":"#0D0D0D",
-              }}>
+              <div key={t.name}
+                draggable
+                onDragStart={e=>{
+                  e.dataTransfer.setData("application/procut-transition",t.name);
+                  e.dataTransfer.effectAllowed="copy";
+                }}
+                style={{
+                  display:"flex", alignItems:"center",
+                  padding:"7px 8px", borderRadius:7, marginBottom:3,
+                  border:`1px solid ${active?C.gold+"44":C.border}`,
+                  background: active?"#1A1400":"#0D0D0D",
+                  cursor:"grab",
+                }}>
                 <div style={{flex:1}}>
                   <p style={{fontSize:11, color:active?C.gold:C.text, margin:0}}>{t.name}</p>
                   <p style={{fontSize:9, color:C.muted, margin:0}}>{t.desc}</p>
@@ -1155,11 +1211,28 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
                     padding:"3px 8px", borderRadius:5, fontSize:10, cursor:clip?"pointer":"default",
                     background: active?`${C.red}22`:`${C.gold}22`,
                     border:`1px solid ${active?C.red+"44":C.gold+"44"}`,
-                    color: active?C.red:C.gold,
+                    color: active?C.red:C.gold, flexShrink:0,
                   }}>{active?"Remove":"Set"}</button>
               </div>
             );
           })}
+          {/* Duration slider when transition is set */}
+          {clip?.transition && (
+            <div style={{marginTop:8, padding:"8px 10px", background:"#0D0D0D", borderRadius:7, border:`1px solid ${C.gold}33`}}>
+              <div style={{display:"flex", justifyContent:"space-between", marginBottom:4}}>
+                <p style={{fontSize:9, color:C.muted, margin:0}}>DURATION</p>
+                <span style={{fontSize:9, color:C.gold}}>{(clip.transitionDuration??1).toFixed(1)}s</span>
+              </div>
+              <input type="range" min={0.5} max={3} step={0.5}
+                value={clip.transitionDuration??1}
+                onChange={e=>onUpdateClip(clip.id,{transitionDuration:Number(e.target.value)})}
+                style={{width:"100%", accentColor:C.gold}}/>
+              <div style={{display:"flex", justifyContent:"space-between", marginTop:2}}>
+                <span style={{fontSize:8, color:`${C.muted}66`}}>0.5s</span>
+                <span style={{fontSize:8, color:`${C.muted}66`}}>3s</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1248,78 +1321,91 @@ function ColorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:str
 }
 
 // ── Tab: Audio ─────────────────────────────────────────────────────────────
-function AudioTab() {
-  const [mixer,setMixer]=useState([
-    {name:"Music",    vol:85, muted:false, soloed:false},
-    {name:"SFX",      vol:60, muted:false, soloed:false},
-    {name:"Ambience", vol:30, muted:true,  soloed:false},
-  ]);
+function AudioTab({ tracks, allClips, onUpdateClip, onToggleTrack }: {
+  tracks:Track[]; allClips:Clip[];
+  onUpdateClip:(id:string,updates:Partial<Clip>)=>void;
+  onToggleTrack:(id:string,prop:"muted"|"locked"|"visible")=>void;
+}) {
+  const audioTracks=tracks.filter(t=>t.type==="audio");
   const [activePlugins,setActivePlugins]=useState<Record<string,string[]>>({});
+  const [soloed,setSoloed]=useState<string|null>(null);
 
-  const toggleMute=(i:number)=>setMixer(p=>p.map((t,j)=>j===i?{...t,muted:!t.muted}:t));
-  const toggleSolo=(i:number)=>setMixer(p=>p.map((t,j)=>j===i?{...t,soloed:!t.soloed}:t));
-  const setVol=(i:number,v:number)=>setMixer(p=>p.map((t,j)=>j===i?{...t,vol:v}:t));
-  const togglePlugin=(trackName:string,plugin:string)=>setActivePlugins(p=>{
-    const cur=p[trackName]??[];
-    return {...p,[trackName]:cur.includes(plugin)?cur.filter(x=>x!==plugin):[...cur,plugin]};
+  const togglePlugin=(tid:string,plugin:string)=>setActivePlugins(p=>{
+    const cur=p[tid]??[];
+    return {...p,[tid]:cur.includes(plugin)?cur.filter(x=>x!==plugin):[...cur,plugin]};
   });
+
+  const getTrackVol=(tid:string)=>{
+    const c=allClips.find(c=>c.trackId===tid&&c.type==="audio");
+    return c?.volume??100;
+  };
+
+  const setTrackVol=(tid:string,vol:number)=>{
+    allClips.filter(c=>c.trackId===tid&&c.type==="audio")
+      .forEach(c=>onUpdateClip(c.id,{volume:vol}));
+  };
 
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
       <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0"}}>MASTER MIXER</p>
-      {mixer.map((t,i)=>(
-        <div key={t.name} style={{
-          background:"#0D0D0D", border:`1px solid ${t.muted?C.red+"33":C.border}`,
-          borderRadius:8, padding:"8px 10px", marginBottom:8,
-          opacity: t.muted ? 0.6 : 1,
-        }}>
-          <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:8}}>
-            <span style={{fontSize:11, color:t.muted?C.muted:C.text, flex:1}}>{t.name}</span>
-            <button onClick={()=>toggleMute(i)} style={{
-              width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
-              background: t.muted?C.red+"44":"transparent",
-              border:`1px solid ${t.muted?C.red:C.border}`,
-              color: t.muted?C.red:C.muted, cursor:"pointer",
-            }}>M</button>
-            <button onClick={()=>toggleSolo(i)} style={{
-              width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
-              background: t.soloed?`${C.gold}44`:"transparent",
-              border:`1px solid ${t.soloed?C.gold:C.border}`,
-              color: t.soloed?C.gold:C.muted, cursor:"pointer",
-            }}>S</button>
+      {audioTracks.length===0 ? (
+        <p style={{fontSize:10, color:`${C.muted}66`, textAlign:"center", padding:"16px 0"}}>
+          No audio tracks yet. Drop an audio clip or use Detach Audio.
+        </p>
+      ) : audioTracks.map(t=>{
+        const vol=getTrackVol(t.id);
+        const plugins=activePlugins[t.id]??[];
+        const isSoloed=soloed===t.id;
+        return (
+          <div key={t.id} style={{
+            background:"#0D0D0D", border:`1px solid ${t.muted?C.red+"33":C.border}`,
+            borderRadius:8, padding:"8px 10px", marginBottom:8,
+            opacity: t.muted ? 0.6 : 1,
+          }}>
+            <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:8}}>
+              <span style={{fontSize:11, color:t.muted?C.muted:C.text, flex:1,
+                overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{t.name}</span>
+              <button onClick={()=>onToggleTrack(t.id,"muted")} style={{
+                width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
+                background: t.muted?`${C.red}44`:"transparent",
+                border:`1px solid ${t.muted?C.red:C.border}`,
+                color: t.muted?C.red:C.muted, cursor:"pointer",
+              }}>M</button>
+              <button onClick={()=>setSoloed(isSoloed?null:t.id)} style={{
+                width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
+                background: isSoloed?`${C.gold}44`:"transparent",
+                border:`1px solid ${isSoloed?C.gold:C.border}`,
+                color: isSoloed?C.gold:C.muted, cursor:"pointer",
+              }}>S</button>
+            </div>
+            <div style={{display:"flex", alignItems:"center", gap:6}}>
+              <span style={{fontSize:9, color:C.muted, width:20}}>Vol</span>
+              <input type="range" min={0} max={200} value={vol}
+                onChange={e=>setTrackVol(t.id,Number(e.target.value))}
+                style={{flex:1, accentColor:C.gold}}/>
+              <span style={{fontSize:9, color:vol!==100?C.gold:C.text, width:32}}>{vol}%</span>
+            </div>
+            <div style={{display:"flex", gap:4, marginTop:8, flexWrap:"wrap"}}>
+              {["EQ","Comp","Reverb","Noise"].map(a=>{
+                const on=plugins.includes(a);
+                return (
+                  <button key={a} onClick={()=>togglePlugin(t.id,a)} style={{
+                    padding:"2px 7px", borderRadius:5, fontSize:9,
+                    background: on?`${C.gold}22`:"transparent",
+                    border:`1px solid ${on?C.gold+"55":C.border}`,
+                    color: on?C.gold:C.muted, cursor:"pointer",
+                  }}>{a}</button>
+                );
+              })}
+            </div>
           </div>
-          <div style={{display:"flex", alignItems:"center", gap:6}}>
-            <span style={{fontSize:9, color:C.muted, width:20}}>Vol</span>
-            <input type="range" min={0} max={200} value={t.vol}
-              onChange={e=>setVol(i,Number(e.target.value))}
-              style={{flex:1, accentColor:C.gold}}/>
-            <span style={{fontSize:9, color:t.vol!==100?C.gold:C.text, width:32}}>{t.vol}%</span>
-          </div>
-          <div style={{display:"flex", gap:4, marginTop:8, flexWrap:"wrap"}}>
-            {["EQ","Comp","Reverb","Noise"].map(a=>{
-              const on=(activePlugins[t.name]??[]).includes(a);
-              return (
-                <button key={a} onClick={()=>togglePlugin(t.name,a)} style={{
-                  padding:"2px 7px", borderRadius:5, fontSize:9,
-                  background: on?`${C.gold}22`:"transparent",
-                  border:`1px solid ${on?C.gold+"55":C.border}`,
-                  color: on?C.gold:C.muted, cursor:"pointer",
-                }}>{a}</button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-      <div style={{
-        background:"#0D0D0D", border:`1px solid ${C.border}`,
-        borderRadius:8, padding:"8px 10px", marginTop:4,
-      }}>
-        <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>BEAT SYNC</p>
-        <button onClick={()=>{}} style={{
-          width:"100%", padding:"6px", borderRadius:6,
-          background:`${C.gold}11`, border:`1px solid ${C.gold}44`,
-          color:C.gold, cursor:"pointer", fontSize:11,
-        }}>Analyze & Sync Cuts to Beat</button>
+        );
+      })}
+      <div style={{background:"#0D0D0D",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginTop:4}}>
+        <p style={{fontSize:10,color:C.muted,margin:"0 0 6px 0"}}>BEAT SYNC</p>
+        <button style={{width:"100%",padding:"6px",borderRadius:6,
+          background:`${C.gold}11`,border:`1px solid ${C.gold}44`,
+          color:C.gold,cursor:"pointer",fontSize:11}}>Analyze & Sync Cuts to Beat</button>
       </div>
     </div>
   );
@@ -1537,21 +1623,23 @@ function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
 // ── ZONE 5: Timeline ───────────────────────────────────────────────────────
 const LABEL_W=160, TRACK_H=58, AUDIO_H=46;
 
-function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration, snapshot, onToggleTrack, onAddTrack }: {
+function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedIds, setSelectedIds, primaryId, setPrimaryId, duration, snapshot, onToggleTrack, onAddTrack, onUpdateClip }: {
   tracks:Track[]; clips:Clip[]; setClips:React.Dispatch<React.SetStateAction<Clip[]>>;
   tool:Tool;
   playhead:number; setPlayhead:(t:number)=>void;
   zoom:number; setZoom:(z:number)=>void;
-  selectedId:string|null; setSelectedId:(id:string|null)=>void;
+  selectedIds:Set<string>; setSelectedIds:(s:Set<string>)=>void;
+  primaryId:string|null; setPrimaryId:(id:string|null)=>void;
   duration:number;
   snapshot:()=>void;
   onToggleTrack:(id:string, prop:"muted"|"locked"|"visible")=>void;
   onAddTrack:()=>void;
+  onUpdateClip:(id:string, updates:Partial<Clip>)=>void;
 }) {
   const rulerRef=useRef<HTMLDivElement>(null);
   const scrollRef=useRef<HTMLDivElement>(null);
   const [dragOver,setDragOver]=useState<string|null>(null);
-  const [moveDrag,setMoveDrag]=useState<{clipId:string;startX:number;origStart:number}|null>(null);
+  const [moveDrag,setMoveDrag]=useState<{clipIds:string[];startX:number;origStarts:Record<string,number>}|null>(null);
   const [slipDrag,setSlipDrag]=useState<{clipId:string;startX:number;origInPoint:number}|null>(null);
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
   const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number}|null>(null);
@@ -1571,13 +1659,16 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
   },[slipDrag,zoom,setClips]);
 
-  // Select tool — move clip
+  // Select/slide tool — move one or many clips
   useEffect(()=>{
     if(!moveDrag) return;
     const move=(e:MouseEvent)=>{
       const delta=(e.clientX-moveDrag.startX)/zoom;
-      setClips(p=>p.map(c=>c.id===moveDrag.clipId
-        ?{...c,start:Math.max(0,Math.round((moveDrag.origStart+delta)*10)/10)}:c));
+      setClips(p=>p.map(c=>{
+        const orig=moveDrag.origStarts[c.id];
+        if(orig===undefined) return c;
+        return {...c,start:Math.max(0,Math.round((orig+delta)*10)/10)};
+      }));
     };
     const up=()=>setMoveDrag(null);
     window.addEventListener("mousemove",move);
@@ -1633,6 +1724,8 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     const clipType:Clip["type"]=asset.type==="audio"?"audio":"video";
     const clipId=`c${Date.now()}`;
     snapshot();
+    setSelectedIds(new Set([clipId]));
+    setPrimaryId(clipId);
     setClips(p=>[...p,{
       id:clipId,trackId:track.id,name:asset.name,
       start:secs,duration:asset.type==="audio"?30:10,
@@ -1654,15 +1747,34 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const handleClipInteract=(e:React.MouseEvent,clip:Clip)=>{
     if(tool==="select"){
       e.preventDefault();e.stopPropagation();
-      setSelectedId(clip.id);
-      snapshot();
-      setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
+      if(e.shiftKey){
+        // Multi-select: toggle this clip
+        const newIds=new Set(selectedIds);
+        if(newIds.has(clip.id)) newIds.delete(clip.id);
+        else newIds.add(clip.id);
+        setSelectedIds(newIds);
+        setPrimaryId(clip.id);
+        // Drag all selected clips
+        if(newIds.size>0){
+          snapshot();
+          setMoveDrag({
+            clipIds:[...newIds],
+            startX:e.clientX,
+            origStarts:Object.fromEntries(clips.filter(c=>newIds.has(c.id)).map(c=>[c.id,c.start])),
+          });
+        }
+      } else {
+        // Single select
+        setSelectedIds(new Set([clip.id]));
+        setPrimaryId(clip.id);
+        snapshot();
+        setMoveDrag({clipIds:[clip.id],startX:e.clientX,origStarts:{[clip.id]:clip.start}});
+      }
     } else if(tool==="razor"){
       e.preventDefault();e.stopPropagation();
       const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
       const relSecs=(e.clientX-rect.left)/zoom;
-      const durA=relSecs;
-      const durB=clip.duration-durA;
+      const durA=relSecs; const durB=clip.duration-durA;
       if(durA>0.1&&durB>0.1){
         const splitAt=clip.start+relSecs;
         snapshot();
@@ -1671,25 +1783,25 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
           {...clip,id:`${clip.id}_a`,duration:durA},
           {...clip,id:`${clip.id}_b`,start:splitAt,duration:durB,inPoint:(clip.inPoint??0)+durA},
         ]);
-        setSelectedId(null);
+        setSelectedIds(new Set()); setPrimaryId(null);
       }
     } else if(tool==="slip"){
-      // Slip: drag left/right to shift source in-point without moving the clip
-      e.preventDefault(); e.stopPropagation();
-      setSelectedId(clip.id);
+      e.preventDefault();e.stopPropagation();
+      setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
       snapshot();
       setSlipDrag({clipId:clip.id,startX:e.clientX,origInPoint:clip.inPoint??0});
     } else if(tool==="slide"){
-      // Slide: move clip and ripple neighbors
       e.preventDefault();e.stopPropagation();
-      setSelectedId(clip.id);
+      setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
       snapshot();
-      setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
-    } else if(tool==="hand"||tool==="zoom") {
-      // let event bubble to handleLaneMouseDown for pan / zoom
+      setMoveDrag({clipIds:[clip.id],startX:e.clientX,origStarts:{[clip.id]:clip.start}});
+    } else if(tool==="hand"||tool==="zoom"){
+      // let event bubble to handleLaneMouseDown
     } else {
       e.stopPropagation();
-      setSelectedId(clip.id===selectedId?null:clip.id);
+      const isSel=selectedIds.has(clip.id)&&selectedIds.size===1;
+      if(isSel){setSelectedIds(new Set());setPrimaryId(null);}
+      else{setSelectedIds(new Set([clip.id]));setPrimaryId(clip.id);}
     }
   };
 
@@ -1849,7 +1961,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                   onDragLeave={()=>setDragOver(null)}
                   onDrop={e=>handleDrop(e,t)}
                   onMouseDown={e=>{
-                    if(tool==="select"&&e.target===e.currentTarget) setSelectedId(null);
+                    if(tool==="select"&&e.target===e.currentTarget){setSelectedIds(new Set());setPrimaryId(null);}
                     if(tool==="text"&&e.target===e.currentTarget){
                       const scrollX=scrollRef.current?.scrollLeft??0;
                       const r=scrollRef.current?.getBoundingClientRect();
@@ -1866,19 +1978,28 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                     transition:"background 0.1s",
                   }}>
                   {tc.map(clip=>{
-                    const sel=clip.id===selectedId;
+                    const sel=selectedIds.has(clip.id);
+                    const isPrimary=clip.id===primaryId;
                     return (
-                      <div key={clip.id} onMouseDown={e=>handleClipInteract(e,clip)}
+                      <div key={clip.id}
+                        onMouseDown={e=>handleClipInteract(e,clip)}
+                        onDragOver={e=>{e.preventDefault();e.stopPropagation();}}
+                        onDrop={e=>{
+                          e.stopPropagation();
+                          const trans=e.dataTransfer.getData("application/procut-transition");
+                          if(trans){snapshot();onUpdateClip(clip.id,{transition:trans});}
+                        }}
                         style={{
                           position:"absolute",
                           left:clip.start*zoom+1, width:Math.max(4,clip.duration*zoom-3),
                           top:4, bottom:4, borderRadius:5,
                           background:clipBg(clip),
-                          border:`1px solid ${sel?C.gold:C.border+"88"}`,
+                          border:`1px solid ${isPrimary?C.gold:sel?`${C.gold}66`:C.border+"88"}`,
                           cursor:clipCursor, overflow:"hidden",
                           userSelect:"none",
+                          boxShadow:sel?`0 0 0 1px ${C.gold}33`:undefined,
                         }}>
-                        {sel && <div style={{
+                        {isPrimary && <div style={{
                           position:"absolute", left:0, top:0, bottom:0,
                           width:3, background:C.gold,
                           borderRadius:"5px 0 0 5px",
@@ -2131,8 +2252,9 @@ export default function ProCutEditor() {
   const [zoom,setZoom]=useState(80);
   const [showExport,setShowExport]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
-  const [selectedId,setSelectedId]=useState<string|null>(null);
-  const [clipboard,setClipboard]=useState<Clip|null>(null);
+  const [selectedIds,setSelectedIds]=useState<Set<string>>(new Set());
+  const [primaryId,setPrimaryId]=useState<string|null>(null);
+  const [clipboard,setClipboard]=useState<Clip[]>([]);
   const [projectName,setProjectName]=useState("Jeff Dixon — Music Video");
   const undoStack=useRef<Clip[][]>([]);
   const redoStack=useRef<Clip[][]>([]);
@@ -2174,7 +2296,7 @@ export default function ProCutEditor() {
     return ()=>clearInterval(iv);
   },[playing,duration]);
 
-  const selectedClip=clips.find(c=>c.id===selectedId)||null;
+  const selectedClip=clips.find(c=>c.id===primaryId)||null;
 
   // Undo / Redo
   const snapshot=useCallback(()=>{
@@ -2210,56 +2332,55 @@ export default function ProCutEditor() {
     }]);
   },[playhead]);
 
-  // Detach audio from selected video clip → creates audio clip on music track
+  // Detach audio from selected video clip → creates its own dedicated audio track
   const detachAudio=useCallback(()=>{
-    if(!selectedId) return;
-    const clip=clips.find(c=>c.id===selectedId);
+    if(!primaryId) return;
+    const clip=clips.find(c=>c.id===primaryId);
     if(!clip||clip.type!=="video"||!clip.url) return;
     snapshot();
-    const audioTrack=tracks.find(t=>t.type==="audio")||tracks[0];
+    const newTrackId=`a${Date.now()}`;
+    const clipName=clip.name.replace(" (Audio)","");
+    setTracks(p=>[...p,{id:newTrackId,type:"audio",name:`${clipName} Audio`,muted:false,locked:false,visible:true}]);
     setClips(p=>[
       ...p.map(c=>c.id===clip.id?{...c,muted:true}:c),
-      {
-        id:`c${Date.now()}`,
-        trackId:audioTrack.id,
-        name:`${clip.name} (Audio)`,
-        start:clip.start,
-        duration:clip.duration,
-        type:"audio" as const,
-        src:clip.src,
-        url:clip.url,
-        volume:100,
-      },
+      {id:`c${Date.now()+1}`,trackId:newTrackId,name:`${clipName} (Audio)`,
+        start:clip.start,duration:clip.duration,type:"audio" as const,
+        src:clip.src,url:clip.url,volume:100},
     ]);
-  },[selectedId,clips,snapshot,tracks]);
+  },[primaryId,clips,snapshot]);
 
   const cutClip=useCallback(()=>{
-    if(!selectedId) return;
-    const clip=clips.find(c=>c.id===selectedId);
-    if(!clip) return;
+    if(!selectedIds.size) return;
+    const tocut=clips.filter(c=>selectedIds.has(c.id));
+    if(!tocut.length) return;
     snapshot();
-    setClipboard(clip);
-    setClips(p=>p.filter(c=>c.id!==selectedId));
-    setSelectedId(null);
-  },[selectedId,clips,snapshot]);
+    setClipboard(tocut);
+    setClips(p=>p.filter(c=>!selectedIds.has(c.id)));
+    setSelectedIds(new Set()); setPrimaryId(null);
+  },[selectedIds,clips,snapshot]);
 
   const copyClip=useCallback(()=>{
-    const clip=clips.find(c=>c.id===selectedId);
-    if(clip) setClipboard(clip);
-  },[selectedId,clips]);
+    const tocc=clips.filter(c=>selectedIds.has(c.id));
+    if(tocc.length) setClipboard(tocc);
+  },[selectedIds,clips]);
 
   const pasteClip=useCallback(()=>{
-    if(!clipboard) return;
+    if(!clipboard.length) return;
     snapshot();
-    setClips(p=>[...p,{...clipboard,id:`c${Date.now()}`,start:playhead}]);
+    const now=Date.now();
+    const minStart=Math.min(...clipboard.map(c=>c.start));
+    const newClips=clipboard.map((c,i)=>({...c,id:`c${now+i}`,start:playhead+(c.start-minStart)}));
+    setClips(p=>[...p,...newClips]);
+    setSelectedIds(new Set(newClips.map(c=>c.id)));
+    setPrimaryId(newClips[newClips.length-1].id);
   },[clipboard,playhead,snapshot]);
 
   const deleteClip=useCallback(()=>{
-    if(!selectedId) return;
+    if(!selectedIds.size) return;
     snapshot();
-    setClips(p=>p.filter(c=>c.id!==selectedId));
-    setSelectedId(null);
-  },[selectedId,snapshot]);
+    setClips(p=>p.filter(c=>!selectedIds.has(c.id)));
+    setSelectedIds(new Set()); setPrimaryId(null);
+  },[selectedIds,snapshot]);
 
   // Keyboard shortcuts
   useEffect(()=>{
@@ -2313,7 +2434,7 @@ export default function ProCutEditor() {
           onSettings={()=>setShowSettings(true)}
           onCut={cutClip} onCopy={copyClip} onPaste={pasteClip} onDelete={deleteClip}
           onUndo={undo} onRedo={redo}
-          hasSelection={!!selectedId} canPaste={!!clipboard}
+          hasSelection={selectedIds.size>0} canPaste={clipboard.length>0}
         />
         <ToolsPanel tool={tool} setTool={setTool} onTab={setActiveTab} onImport={()=>{ setActiveTab("assets"); importFileRef.current?.click(); }}/>
         <PreviewWindow
@@ -2330,17 +2451,20 @@ export default function ProCutEditor() {
           assets={assets} setAssets={setAssets}
           onUpdateClip={updateClip} onAddClip={addTextClip}
           onDetachAudio={detachAudio}
+          tracks={tracks} allClips={clips} onToggleTrack={toggleTrackProp}
         />
         <Timeline
           tracks={tracks} clips={clips} setClips={setClips}
           tool={tool}
           playhead={playhead} setPlayhead={setPlayhead}
           zoom={zoom} setZoom={setZoom}
-          selectedId={selectedId} setSelectedId={setSelectedId}
+          selectedIds={selectedIds} setSelectedIds={setSelectedIds}
+          primaryId={primaryId} setPrimaryId={setPrimaryId}
           duration={duration}
           snapshot={snapshot}
           onToggleTrack={toggleTrackProp}
           onAddTrack={addTrack}
+          onUpdateClip={updateClip}
         />
       </div>
 
