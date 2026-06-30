@@ -1653,6 +1653,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
   const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number}|null>(null);
   const [playheadDrag,setPlayheadDrag]=useState(false);
+  const [contextMenu,setContextMenu]=useState<{x:number;y:number;clipId:string}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
 
   // Slip tool — drag shifts inPoint
@@ -1735,6 +1736,14 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     window.addEventListener("mouseup",up);
     return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
   },[playheadDrag,zoom,duration,setPlayhead]);
+
+  // Close context menu on any click outside
+  useEffect(()=>{
+    if(!contextMenu) return;
+    const close=()=>setContextMenu(null);
+    window.addEventListener("mousedown",close);
+    return()=>window.removeEventListener("mousedown",close);
+  },[contextMenu]);
 
   // Drop from assets panel
   const handleDrop=(e:React.DragEvent<HTMLDivElement>, track:Track)=>{
@@ -1867,6 +1876,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const ticks=Array.from({length:Math.ceil(duration)+1},(_,i)=>i);
 
   return (
+    <>
     <div style={{
       gridColumn:"1/-1", gridRow:"3",
       background:C.bg, borderTop:`1px solid ${C.border}`,
@@ -2009,6 +2019,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                     return (
                       <div key={clip.id}
                         onMouseDown={e=>handleClipInteract(e,clip)}
+                        onContextMenu={e=>{e.preventDefault();e.stopPropagation();setContextMenu({x:e.clientX,y:e.clientY,clipId:clip.id});setPrimaryId(clip.id);setSelectedIds(new Set([clip.id]));}}
                         onDragOver={e=>{e.preventDefault();e.stopPropagation();}}
                         onDrop={e=>{
                           e.stopPropagation();
@@ -2096,6 +2107,49 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         </div>
       </div>
     </div>
+    {contextMenu && (()=>{
+      const ctxClip=clips.find(c=>c.id===contextMenu.clipId);
+      if(!ctxClip) return null;
+      const menuItem=(label:string,color:string,onClick:()=>void)=>(
+        <button onMouseDown={e=>{e.stopPropagation();onClick();}} style={{
+          display:"block",width:"100%",padding:"7px 14px",
+          background:"transparent",border:"none",textAlign:"left",
+          color,cursor:"pointer",fontSize:11,whiteSpace:"nowrap",
+        }}
+        onMouseEnter={e=>(e.currentTarget.style.background="#2A2A2A")}
+        onMouseLeave={e=>(e.currentTarget.style.background="transparent")}
+        >{label}</button>
+      );
+      return (
+        <div onMouseDown={e=>e.stopPropagation()} style={{
+          position:"fixed",left:contextMenu.x,top:contextMenu.y,
+          zIndex:9999,background:"#1A1A1A",border:`1px solid ${C.border}`,
+          borderRadius:8,overflow:"hidden",boxShadow:"0 8px 24px #00000099",
+          minWidth:200,
+        }}>
+          <div style={{padding:"4px 0"}}>
+            <div style={{padding:"5px 14px 4px",fontSize:9,color:C.muted,borderBottom:`1px solid ${C.border}`,marginBottom:4}}>
+              {ctxClip.name}
+            </div>
+            {menuItem(`Move to Playhead  (${fmtTC(playhead)})`,C.gold,()=>{snapshot();onUpdateClip(contextMenu.clipId,{start:Math.round(playhead*10)/10});setContextMenu(null);})}
+            {menuItem("Split at Playhead",C.text,()=>{
+              if(playhead>ctxClip.start&&playhead<ctxClip.start+ctxClip.duration){
+                snapshot();
+                const leftDur=Math.round((playhead-ctxClip.start)*10)/10;
+                const rightDur=Math.round((ctxClip.duration-leftDur)*10)/10;
+                setClips(p=>[...p.map(c=>c.id===ctxClip.id?{...c,duration:leftDur}:c),
+                  {...ctxClip,id:`c${Date.now()}`,start:playhead,duration:rightDur,inPoint:(ctxClip.inPoint??0)+leftDur}]);
+              }
+              setContextMenu(null);
+            })}
+            <div style={{height:1,background:C.border,margin:"4px 0"}}/>
+            {menuItem("Duplicate",C.text,()=>{snapshot();setClips(p=>[...p,{...ctxClip,id:`c${Date.now()}`,start:ctxClip.start+ctxClip.duration+0.5}]);setContextMenu(null);})}
+            {menuItem("Delete Clip",C.red,()=>{snapshot();setClips(p=>p.filter(c=>c.id!==contextMenu.clipId));setContextMenu(null);})}
+          </div>
+        </div>
+      );
+    })()}
+    </>
   );
 }
 
