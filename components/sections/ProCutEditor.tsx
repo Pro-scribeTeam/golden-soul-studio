@@ -45,10 +45,21 @@ interface Clip {
   opacity?: number;  // 0–100
   effects?: string[];
   colorGrade?: string;
+  colorAdjustments?: Record<string,number>; // named slider values
   volume?: number;   // 0–200
   muted?: boolean;
   transition?: string;     // transition at start of clip
   transitionDuration?: number; // seconds, default 1.0
+  // Text clip properties
+  textContent?: string;
+  textFont?: string;
+  textSize?: number;
+  textColor?: string;
+  textAlign?: "left"|"center"|"right";
+  textPosition?: "top"|"center"|"bottom";
+  textAnimation?: string;
+  // Audio plugin values per track (stored on audio clip)
+  audioPlugins?: Record<string, Record<string,number>>; // plugin->param->value
 }
 interface Track {
   id: string; type: "video"|"audio"|"text";
@@ -64,8 +75,16 @@ const INIT_TRACKS: Track[] = [
   { id:"a2", type:"audio", name:"SFX",      muted:false, locked:false, visible:true },
 ];
 const PLATFORMS = ["YouTube","YouTube Shorts","Instagram Feed","Instagram Reels","TikTok","Facebook","Vimeo","Custom"];
-const COLOR_PRESETS = ["Golden Soul","Midnight Fedora","Ivory Gospel","Golden Hour","Teal + Orange","Film Noir","Cinematic Blue","Warm Vintage","VHS Retro","Music Video"];
+const COLOR_PRESETS = [
+  "None",
+  "Golden Soul","Midnight Fedora","Ivory Gospel","Golden Hour","Teal + Orange",
+  "Film Noir","Cinematic Blue","Warm Vintage","VHS Retro","Music Video",
+  "Bleach Bypass","Cross Process","Day for Night","Neon Nights","Pastel Dream",
+  "High Key","Low Key","Matte Finish","Sunset Gold","Teal Shadow",
+  "Desert Heat","Arctic Blue","Emerald Forest","Burgundy Deep","Raw / Natural",
+];
 const COLOR_GRADE_FILTERS: Record<string,string> = {
+  "None":            "",
   "Golden Soul":     "sepia(0.35) saturate(1.4) hue-rotate(8deg) brightness(1.05)",
   "Midnight Fedora": "contrast(1.45) brightness(0.82) saturate(0.65)",
   "Ivory Gospel":    "sepia(0.2) brightness(1.12) saturate(0.88) contrast(1.05)",
@@ -76,6 +95,21 @@ const COLOR_GRADE_FILTERS: Record<string,string> = {
   "Warm Vintage":    "sepia(0.6) saturate(1.25) brightness(1.06) contrast(0.95)",
   "VHS Retro":       "contrast(1.25) saturate(1.45) hue-rotate(-8deg) brightness(1.02)",
   "Music Video":     "contrast(1.35) saturate(1.55) brightness(1.06)",
+  "Bleach Bypass":   "grayscale(0.35) contrast(1.65) brightness(0.95) saturate(0.55)",
+  "Cross Process":   "saturate(1.9) hue-rotate(25deg) contrast(1.2) brightness(1.05)",
+  "Day for Night":   "brightness(0.55) saturate(0.5) hue-rotate(195deg) contrast(1.2)",
+  "Neon Nights":     "saturate(2.2) brightness(0.8) contrast(1.4) hue-rotate(260deg)",
+  "Pastel Dream":    "saturate(0.65) brightness(1.18) contrast(0.85)",
+  "High Key":        "brightness(1.35) contrast(0.8) saturate(0.9)",
+  "Low Key":         "brightness(0.65) contrast(1.35) saturate(0.75)",
+  "Matte Finish":    "contrast(0.88) brightness(1.05) saturate(0.8)",
+  "Sunset Gold":     "sepia(0.45) saturate(1.8) hue-rotate(18deg) brightness(1.08) contrast(1.05)",
+  "Teal Shadow":     "saturate(1.45) hue-rotate(168deg) brightness(0.9) contrast(1.15)",
+  "Desert Heat":     "sepia(0.5) saturate(1.6) hue-rotate(-10deg) brightness(1.06) contrast(1.1)",
+  "Arctic Blue":     "saturate(0.55) hue-rotate(200deg) brightness(1.1) contrast(1.2)",
+  "Emerald Forest":  "saturate(1.4) hue-rotate(140deg) brightness(0.9) contrast(1.05)",
+  "Burgundy Deep":   "saturate(1.2) hue-rotate(330deg) brightness(0.8) contrast(1.3)",
+  "Raw / Natural":   "saturate(0.95) contrast(1.02) brightness(1.01)",
 };
 
 const TRANSITIONS = [
@@ -91,6 +125,14 @@ function getClipCSSFilter(clip:Clip|null):string {
   if(!clip) return "";
   const parts:string[]=[];
   if(clip.colorGrade){const f=COLOR_GRADE_FILTERS[clip.colorGrade];if(f)parts.push(f);}
+  // Apply manual color adjustments
+  const adj=clip.colorAdjustments??{};
+  if(adj["Brightness"]){const v=adj["Brightness"]/100;parts.push(`brightness(${1+v*0.6})`);}
+  if(adj["Contrast"]){const v=adj["Contrast"]/100;parts.push(`contrast(${1+v*0.7})`);}
+  if(adj["Saturation"]){const v=adj["Saturation"]/100;parts.push(`saturate(${1+v*1.2})`);}
+  if(adj["Hue Shift"]){parts.push(`hue-rotate(${adj["Hue Shift"]}deg)`);}
+  if(adj["Temperature"]){const v=adj["Temperature"]/100;parts.push(`sepia(${Math.abs(v)*0.3})`);}
+  if(adj["Grain Amount"]){/* overlay only */}
   const fx=clip.effects??[];
   if(fx.includes("Gaussian Blur"))    parts.push("blur(2px)");
   if(fx.includes("Motion Blur"))      parts.push("blur(1.5px)");
@@ -670,7 +712,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 }
 
 // ── ZONE 4: Inspector ──────────────────────────────────────────────────────
-function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio, tracks, allClips, onToggleTrack, playhead }: {
+function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setNarrative, storyText, setStoryText, assets, setAssets, onUpdateClip, onAddClip, onDetachAudio, tracks, allClips, onToggleTrack, playhead, snapshot }: {
   activeTab:ITab; setActiveTab:(t:ITab)=>void;
   selectedClip:Clip|null; narrative:boolean; setNarrative:(v:boolean)=>void;
   storyText:string; setStoryText:(v:string)=>void;
@@ -681,6 +723,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
   tracks:Track[]; allClips:Clip[];
   onToggleTrack:(id:string,prop:"muted"|"locked"|"visible")=>void;
   playhead:number;
+  snapshot:()=>void;
 }) {
   const TABS: Array<{id:ITab; label:string}> = [
     {id:"assets",    label:"Assets"},
@@ -719,9 +762,9 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
         {activeTab==="assets"    && <AssetsTab assets={assets} setAssets={setAssets}/>}
         {activeTab==="inspector" && <InspectorTab clip={selectedClip} onUpdateClip={onUpdateClip} onDetachAudio={onDetachAudio} playhead={playhead}/>}
         {activeTab==="effects"   && <EffectsTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
-        {activeTab==="color"     && <ColorTab clip={selectedClip} onUpdateClip={onUpdateClip}/>}
-        {activeTab==="audio"     && <AudioTab tracks={tracks} allClips={allClips} onUpdateClip={onUpdateClip} onToggleTrack={onToggleTrack}/>}
-        {activeTab==="text"      && <TextTab onAddClip={onAddClip}/>}
+        {activeTab==="color"     && <ColorTab clip={selectedClip} onUpdateClip={onUpdateClip} snapshot={snapshot}/>}
+        {activeTab==="audio"     && <AudioTab tracks={tracks} allClips={allClips} onUpdateClip={onUpdateClip} onToggleTrack={onToggleTrack} snapshot={snapshot}/>}
+        {activeTab==="text"      && <TextTab onAddClip={onAddClip} selectedClip={selectedClip} onUpdateClip={onUpdateClip} snapshot={snapshot}/>}
         {activeTab==="story"     && <StoryTab narrative={narrative} setNarrative={setNarrative} storyText={storyText} setStoryText={setStoryText}/>}
       </div>
     </div>
@@ -1249,17 +1292,51 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
 }
 
 // ── Tab: Color ─────────────────────────────────────────────────────────────
-function ColorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:string,updates:Partial<Clip>)=>void }) {
-  const preset = clip?.colorGrade ?? "Golden Soul";
+const COLOR_SLIDER_DEFS: Record<string, Array<{key:string; min:number; max:number; def:number}>> = {
+  "EXPOSURE": [
+    {key:"Brightness",  min:-100, max:100, def:0},
+    {key:"Contrast",    min:-100, max:100, def:0},
+    {key:"Highlights",  min:-100, max:100, def:0},
+    {key:"Shadows",     min:-100, max:100, def:0},
+    {key:"Whites",      min:-100, max:100, def:0},
+    {key:"Blacks",      min:-100, max:100, def:0},
+  ],
+  "COLOR": [
+    {key:"Temperature", min:-100, max:100, def:0},
+    {key:"Tint",        min:-100, max:100, def:0},
+    {key:"Saturation",  min:-100, max:100, def:0},
+    {key:"Vibrance",    min:-100, max:100, def:0},
+    {key:"Hue Shift",   min:-180, max:180, def:0},
+  ],
+  "CURVES": [
+    {key:"Lift",   min:-100, max:100, def:0},
+    {key:"Gamma",  min:-100, max:100, def:0},
+    {key:"Gain",   min:-100, max:100, def:0},
+  ],
+  "VIGNETTE": [
+    {key:"Vignette Intensity", min:0, max:100, def:0},
+    {key:"Vignette Feather",   min:0, max:100, def:50},
+  ],
+  "GRAIN": [
+    {key:"Grain Amount", min:0, max:100, def:0},
+    {key:"Grain Size",   min:1, max:10,  def:3},
+  ],
+};
+
+function ColorTab({ clip, onUpdateClip, snapshot }: {
+  clip:Clip|null;
+  onUpdateClip:(id:string,updates:Partial<Clip>)=>void;
+  snapshot:()=>void;
+}) {
+  const preset = clip?.colorGrade ?? "None";
   const [section,setSection]=useState<string|null>("EXPOSURE");
-  const SLIDER_DEFS: Record<string, string[]> = {
-    "EXPOSURE":["Brightness","Contrast","Highlights","Shadows","Whites","Blacks"],
-    "COLOR":["Temperature","Tint","Saturation","Vibrance","Hue Shift"],
-    "VIGNETTE":["Intensity","Feather"],
-    "GRAIN":["Amount","Size"],
+  const adj = clip?.colorAdjustments ?? {};
+
+  const setAdj=(key:string, v:number)=>{
+    if(!clip) return;
+    onUpdateClip(clip.id,{colorAdjustments:{...adj,[key]:v}});
   };
-  const [sliderVals,setSliderVals]=useState<Record<string,number>>({});
-  const setVal=(key:string,v:number)=>setSliderVals(p=>({...p,[key]:v}));
+
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
       {!clip && (
@@ -1267,49 +1344,56 @@ function ColorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:str
           <p style={{fontSize:10, color:C.muted, margin:0}}>Select a clip to apply color grading</p>
         </div>
       )}
-      {/* Presets */}
-      <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>PRESETS</p>
-      <div style={{display:"flex", gap:4, overflowX:"auto", marginBottom:12, paddingBottom:4}}>
+      {/* Preset dropdown */}
+      <p style={{fontSize:10, color:C.muted, margin:"0 0 5px 0"}}>PRESET</p>
+      <select
+        disabled={!clip}
+        value={preset}
+        onChange={e=>{
+          if(!clip) return;
+          snapshot();
+          onUpdateClip(clip.id,{colorGrade:e.target.value==="None"?undefined:e.target.value});
+        }}
+        style={{
+          width:"100%", padding:"6px 8px", marginBottom:10,
+          background:"#0D0D0D", border:`1px solid ${clip?.colorGrade?C.gold:C.border}`,
+          borderRadius:6, color:clip?.colorGrade?C.gold:C.text,
+          fontSize:11, outline:"none", cursor:"pointer", appearance:"auto",
+        }}
+      >
         {COLOR_PRESETS.map(p=>(
-          <button key={p}
-            disabled={!clip}
-            onClick={()=>{ if(clip) onUpdateClip(clip.id,{colorGrade:p}); }}
-            style={{
-              flexShrink:0, padding:"4px 10px", borderRadius:6, fontSize:10,
-              background: preset===p?`${C.gold}22`:"#0D0D0D",
-              border:`1px solid ${preset===p?C.gold:C.border}`,
-              color: preset===p?C.gold:C.muted,
-              cursor:clip?"pointer":"default", whiteSpace:"nowrap",
-            }}>{p}</button>
+          <option key={p} value={p} style={{background:"#1A1A1A"}}>{p}</option>
         ))}
-      </div>
-      {clip?.colorGrade && (
-        <div style={{marginBottom:10, padding:"5px 8px", background:"#1A1400", borderRadius:6, border:`1px solid ${C.gold}33`}}>
-          <p style={{fontSize:9, color:C.gold, margin:0}}>Applied: {clip.colorGrade}</p>
-        </div>
-      )}
+      </select>
+
       {/* Manual adjustments */}
-      {Object.entries(SLIDER_DEFS).map(([sec,controls])=>(
-        <div key={sec} style={{marginBottom:8}}>
+      {Object.entries(COLOR_SLIDER_DEFS).map(([sec,controls])=>(
+        <div key={sec} style={{marginBottom:8, borderBottom:`1px solid ${C.border}22`, paddingBottom:4}}>
           <button onClick={()=>setSection(section===sec?null:sec)} style={{
             width:"100%", display:"flex", justifyContent:"space-between",
             alignItems:"center", background:"transparent", border:"none",
-            color:C.muted, fontSize:10, cursor:"pointer", padding:"4px 0",
+            color:section===sec?C.gold:C.muted, fontSize:10, cursor:"pointer", padding:"4px 0",
           }}>
-            <span>{sec}</span>
+            <span style={{fontWeight:section===sec?600:400}}>{sec}</span>
             {section===sec ? <ChevronDown size={11}/> : <ChevronRight size={11}/>}
           </button>
           {section===sec && (
-            <div style={{paddingLeft:4}}>
-              {controls.map(ctrl=>{
-                const val=sliderVals[ctrl]??0;
+            <div style={{paddingLeft:4, paddingTop:4}}>
+              {controls.map(({key:ctrl,min,max,def})=>{
+                const val=adj[ctrl]??def;
+                const changed=val!==def;
                 return (
-                  <div key={ctrl} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-                    <span style={{fontSize:10, color:C.muted, width:80, flexShrink:0}}>{ctrl}</span>
-                    <input type="range" min={-100} max={100} value={val}
-                      onChange={e=>setVal(ctrl,Number(e.target.value))}
+                  <div key={ctrl} style={{display:"flex", alignItems:"center", gap:6, marginBottom:7}}>
+                    <span style={{fontSize:9, color:changed?C.gold:C.muted, width:76, flexShrink:0}}>{ctrl}</span>
+                    <input type="range" min={min} max={max} value={val}
+                      onMouseDown={()=>{ if(clip) snapshot(); }}
+                      onChange={e=>setAdj(ctrl,Number(e.target.value))}
                       style={{flex:1, accentColor:C.gold}}/>
-                    <span style={{fontSize:10, color:val!==0?C.gold:C.text, width:28, textAlign:"right"}}>{val}</span>
+                    <span style={{fontSize:9, color:changed?C.gold:C.muted, width:30, textAlign:"right"}}>{val}</span>
+                    {changed && (
+                      <button onClick={()=>{ if(clip){snapshot();setAdj(ctrl,def);}}}
+                        style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:0,fontSize:9}}>✕</button>
+                    )}
                   </div>
                 );
               })}
@@ -1317,42 +1401,115 @@ function ColorTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:str
           )}
         </div>
       ))}
-      <button onClick={()=>{}} style={{
-        width:"100%", padding:"7px", marginTop:8,
-        borderRadius:8, border:`1px solid ${C.gold}44`,
-        background:`${C.gold}11`, color:C.gold, cursor:"pointer", fontSize:11,
-        display:"flex", alignItems:"center", justifyContent:"center", gap:6,
-      }}>
-        <Film size={12}/> Suggest Color Arc
-      </button>
+      <button onClick={()=>{
+        if(!clip) return;
+        snapshot();
+        onUpdateClip(clip.id,{colorGrade:undefined,colorAdjustments:{}});
+      }} style={{
+        width:"100%", padding:"6px", marginTop:4,
+        borderRadius:6, border:`1px solid ${C.border}`,
+        background:"transparent", color:C.muted, cursor:"pointer", fontSize:10,
+      }}>Reset All</button>
     </div>
   );
 }
 
 // ── Tab: Audio ─────────────────────────────────────────────────────────────
-function AudioTab({ tracks, allClips, onUpdateClip, onToggleTrack }: {
+const PLUGIN_PARAMS: Record<string, Array<{key:string; label:string; min:number; max:number; def:number}>> = {
+  EQ: [
+    {key:"low",  label:"Low (Hz)",    min:-12, max:12, def:0},
+    {key:"low_mid", label:"Low Mid",  min:-12, max:12, def:0},
+    {key:"mid",  label:"Mid",         min:-12, max:12, def:0},
+    {key:"high_mid",label:"High Mid", min:-12, max:12, def:0},
+    {key:"high", label:"High (kHz)",  min:-12, max:12, def:0},
+  ],
+  Comp: [
+    {key:"threshold", label:"Threshold (dB)", min:-60, max:0,   def:-18},
+    {key:"ratio",     label:"Ratio",           min:1,  max:20,  def:4},
+    {key:"attack",    label:"Attack (ms)",     min:1,  max:200, def:10},
+    {key:"release",   label:"Release (ms)",    min:10, max:1000,def:100},
+    {key:"gain",      label:"Makeup Gain",     min:0,  max:24,  def:0},
+  ],
+  Reverb: [
+    {key:"room",    label:"Room Size",  min:0, max:100, def:30},
+    {key:"wet",     label:"Wet Mix",    min:0, max:100, def:20},
+    {key:"damping", label:"Damping",    min:0, max:100, def:50},
+    {key:"predelay",label:"Pre-Delay",  min:0, max:100, def:0},
+  ],
+  Noise: [
+    {key:"sensitivity", label:"Sensitivity", min:0, max:100, def:50},
+    {key:"strength",    label:"Reduction",   min:0, max:100, def:60},
+    {key:"smoothing",   label:"Smoothing",   min:0, max:100, def:40},
+  ],
+};
+
+const SFX_LIST = [
+  {name:"Kick Hit",     icon:"🥁"},
+  {name:"Hi-Hat",       icon:"🎵"},
+  {name:"Snare Crack",  icon:"🎯"},
+  {name:"Vinyl Crackle",icon:"📻"},
+  {name:"Camera Click", icon:"📷"},
+  {name:"Whoosh",       icon:"💨"},
+  {name:"Riser",        icon:"📈"},
+  {name:"Downer",       icon:"📉"},
+  {name:"Glass Break",  icon:"💥"},
+  {name:"Bass Drop",    icon:"🔊"},
+  {name:"Door Slam",    icon:"🚪"},
+  {name:"Crowd Cheer",  icon:"🙌"},
+];
+
+function AudioTab({ tracks, allClips, onUpdateClip, onToggleTrack, snapshot }: {
   tracks:Track[]; allClips:Clip[];
   onUpdateClip:(id:string,updates:Partial<Clip>)=>void;
   onToggleTrack:(id:string,prop:"muted"|"locked"|"visible")=>void;
+  snapshot:()=>void;
 }) {
   const audioTracks=tracks.filter(t=>t.type==="audio");
-  const [activePlugins,setActivePlugins]=useState<Record<string,string[]>>({});
+  const [openPlugins,setOpenPlugins]=useState<Record<string,string|null>>({});
   const [soloed,setSoloed]=useState<string|null>(null);
+  const [sfxAdded,setSfxAdded]=useState<Set<string>>(new Set());
 
-  const togglePlugin=(tid:string,plugin:string)=>setActivePlugins(p=>{
-    const cur=p[tid]??[];
-    return {...p,[tid]:cur.includes(plugin)?cur.filter(x=>x!==plugin):[...cur,plugin]};
-  });
+  const togglePlugin=(tid:string,plugin:string)=>setOpenPlugins(p=>({
+    ...p,[tid]:p[tid]===plugin?null:plugin,
+  }));
 
-  const getTrackVol=(tid:string)=>{
-    const c=allClips.find(c=>c.trackId===tid&&c.type==="audio");
-    return c?.volume??100;
-  };
-
+  const getTrackClip=(tid:string)=>allClips.find(c=>c.trackId===tid&&c.type==="audio");
+  const getTrackVol=(tid:string)=>getTrackClip(tid)?.volume??100;
   const setTrackVol=(tid:string,vol:number)=>{
-    allClips.filter(c=>c.trackId===tid&&c.type==="audio")
-      .forEach(c=>onUpdateClip(c.id,{volume:vol}));
+    allClips.filter(c=>c.trackId===tid&&c.type==="audio").forEach(c=>onUpdateClip(c.id,{volume:vol}));
   };
+
+  const getPluginVal=(tid:string,plugin:string,key:string)=>{
+    const c=getTrackClip(tid);
+    return c?.audioPlugins?.[plugin]?.[key];
+  };
+  const setPluginVal=(tid:string,plugin:string,key:string,val:number)=>{
+    const c=getTrackClip(tid); if(!c) return;
+    const plugins={...c.audioPlugins,[plugin]:{...(c.audioPlugins?.[plugin]??{}),[key]:val}};
+    onUpdateClip(c.id,{audioPlugins:plugins});
+  };
+
+  const handleSolo=(tid:string)=>{
+    const wasSoloed=soloed===tid;
+    const newSoloed=wasSoloed?null:tid;
+    setSoloed(newSoloed);
+    // mute all other audio tracks when soloing
+    audioTracks.forEach(t=>{
+      if(t.id!==tid && !wasSoloed) onToggleTrack(t.id,"muted");
+      else if(wasSoloed && t.muted) onToggleTrack(t.id,"muted"); // unmute all
+    });
+  };
+
+  const slider=(label:string,min:number,max:number,val:number,onChange:(v:number)=>void,onDown:()=>void)=>(
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+      <span style={{fontSize:9,color:C.muted,width:72,flexShrink:0}}>{label}</span>
+      <input type="range" min={min} max={max} value={val}
+        onMouseDown={onDown}
+        onChange={e=>onChange(Number(e.target.value))}
+        style={{flex:1,accentColor:C.gold}}/>
+      <span style={{fontSize:9,color:C.gold,width:26,textAlign:"right"}}>{val}</span>
+    </div>
+  );
 
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
@@ -1363,65 +1520,93 @@ function AudioTab({ tracks, allClips, onUpdateClip, onToggleTrack }: {
         </p>
       ) : audioTracks.map(t=>{
         const vol=getTrackVol(t.id);
-        const plugins=activePlugins[t.id]??[];
         const isSoloed=soloed===t.id;
+        const openPlugin=openPlugins[t.id]??null;
         return (
           <div key={t.id} style={{
-            background:"#0D0D0D", border:`1px solid ${t.muted?C.red+"33":C.border}`,
+            background:"#0D0D0D", border:`1px solid ${t.muted&&!isSoloed?C.red+"33":isSoloed?`${C.gold}55`:C.border}`,
             borderRadius:8, padding:"8px 10px", marginBottom:8,
-            opacity: t.muted ? 0.6 : 1,
           }}>
+            {/* Track header */}
             <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:8}}>
-              <span style={{fontSize:11, color:t.muted?C.muted:C.text, flex:1,
-                overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{t.name}</span>
-              <button onClick={()=>onToggleTrack(t.id,"muted")} style={{
-                width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
+              <span style={{fontSize:11, color:C.text, flex:1, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{t.name}</span>
+              <button onClick={()=>{snapshot();onToggleTrack(t.id,"muted");}} style={{
+                width:22, height:22, borderRadius:4, fontSize:9, fontWeight:700,
                 background: t.muted?`${C.red}44`:"transparent",
                 border:`1px solid ${t.muted?C.red:C.border}`,
                 color: t.muted?C.red:C.muted, cursor:"pointer",
-              }}>M</button>
-              <button onClick={()=>setSoloed(isSoloed?null:t.id)} style={{
-                width:20, height:20, borderRadius:4, fontSize:9, fontWeight:700,
+              }} title="Mute">M</button>
+              <button onClick={()=>handleSolo(t.id)} style={{
+                width:22, height:22, borderRadius:4, fontSize:9, fontWeight:700,
                 background: isSoloed?`${C.gold}44`:"transparent",
                 border:`1px solid ${isSoloed?C.gold:C.border}`,
                 color: isSoloed?C.gold:C.muted, cursor:"pointer",
-              }}>S</button>
+              }} title="Solo">S</button>
             </div>
-            <div style={{display:"flex", alignItems:"center", gap:6}}>
-              <span style={{fontSize:9, color:C.muted, width:20}}>Vol</span>
-              <input type="range" min={0} max={200} value={vol}
-                onChange={e=>setTrackVol(t.id,Number(e.target.value))}
-                style={{flex:1, accentColor:C.gold}}/>
-              <span style={{fontSize:9, color:vol!==100?C.gold:C.text, width:32}}>{vol}%</span>
-            </div>
-            <div style={{display:"flex", gap:4, marginTop:8, flexWrap:"wrap"}}>
-              {["EQ","Comp","Reverb","Noise"].map(a=>{
-                const on=plugins.includes(a);
+            {/* Volume */}
+            {slider("Volume",0,200,vol,v=>{snapshot();setTrackVol(t.id,v);},()=>snapshot())}
+            {/* Plugins */}
+            <div style={{display:"flex", gap:3, marginTop:6, flexWrap:"wrap"}}>
+              {Object.keys(PLUGIN_PARAMS).map(plugin=>{
+                const on=openPlugin===plugin;
                 return (
-                  <button key={a} onClick={()=>togglePlugin(t.id,a)} style={{
-                    padding:"2px 7px", borderRadius:5, fontSize:9,
+                  <button key={plugin} onClick={()=>togglePlugin(t.id,plugin)} style={{
+                    padding:"2px 8px", borderRadius:5, fontSize:9,
                     background: on?`${C.gold}22`:"transparent",
                     border:`1px solid ${on?C.gold+"55":C.border}`,
                     color: on?C.gold:C.muted, cursor:"pointer",
-                  }}>{a}</button>
+                  }}>{plugin}</button>
                 );
               })}
             </div>
+            {/* Plugin panel */}
+            {openPlugin && PLUGIN_PARAMS[openPlugin] && (
+              <div style={{marginTop:8, padding:"8px", background:"#111", borderRadius:6, border:`1px solid ${C.gold}22`}}>
+                <p style={{fontSize:9, color:C.gold, margin:"0 0 8px 0", fontWeight:600}}>{openPlugin}</p>
+                {PLUGIN_PARAMS[openPlugin].map(({key,label,min,max,def})=>{
+                  const val=getPluginVal(t.id,openPlugin,key)??def;
+                  return slider(label,min,max,val,v=>setPluginVal(t.id,openPlugin,key,v),()=>snapshot());
+                })}
+              </div>
+            )}
           </div>
         );
       })}
+
+      {/* SFX section */}
       <div style={{background:"#0D0D0D",border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginTop:4}}>
-        <p style={{fontSize:10,color:C.muted,margin:"0 0 6px 0"}}>BEAT SYNC</p>
-        <button style={{width:"100%",padding:"6px",borderRadius:6,
-          background:`${C.gold}11`,border:`1px solid ${C.gold}44`,
-          color:C.gold,cursor:"pointer",fontSize:11}}>Analyze & Sync Cuts to Beat</button>
+        <p style={{fontSize:10,color:C.muted,margin:"0 0 8px 0"}}>SFX LIBRARY</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+          {SFX_LIST.map(sfx=>{
+            const added=sfxAdded.has(sfx.name);
+            return (
+              <button key={sfx.name} onClick={()=>setSfxAdded(p=>{const n=new Set(p);if(added)n.delete(sfx.name);else n.add(sfx.name);return n;})} style={{
+                padding:"5px 6px", borderRadius:6, cursor:"pointer", textAlign:"left",
+                background:added?`${C.teal}22`:"transparent",
+                border:`1px solid ${added?`${C.teal}55`:C.border}`,
+                color:added?C.teal:C.muted, fontSize:10,
+              }}>{sfx.icon} {sfx.name}</button>
+            );
+          })}
+        </div>
+        {sfxAdded.size>0 && (
+          <p style={{fontSize:9,color:C.teal,margin:"6px 0 0",textAlign:"center"}}>{sfxAdded.size} SFX queued</p>
+        )}
       </div>
     </div>
   );
 }
 
 // ── Tab: Text ──────────────────────────────────────────────────────────────
-function TextTab({ onAddClip }: { onAddClip:(name:string)=>void }) {
+const TEXT_FONTS = ["Default","Inter","Georgia","Courier New","Impact","Trebuchet MS","Playfair Display","Oswald","Montserrat"];
+const TEXT_ANIMATIONS = ["None","Fade In","Slide Up","Slide Down","Slide Left","Slide Right","Zoom In","Typewriter","Bounce","Flash"];
+
+function TextTab({ onAddClip, selectedClip, onUpdateClip, snapshot }: {
+  onAddClip:(name:string)=>void;
+  selectedClip:Clip|null;
+  onUpdateClip:(id:string,updates:Partial<Clip>)=>void;
+  snapshot:()=>void;
+}) {
   const [added,setAdded]=useState<string[]>([]);
   const items=[
     {label:"Text Overlay",    desc:"Full typographic control + animation"},
@@ -1436,28 +1621,117 @@ function TextTab({ onAddClip }: { onAddClip:(name:string)=>void }) {
     onAddClip(name);
     setAdded(p=>[...p,`${name}-${Date.now()}`]);
   };
+
+  const textClip = selectedClip?.type==="text" ? selectedClip : null;
+  const upd=(k:keyof Clip,v:unknown)=>{
+    if(!textClip) return;
+    snapshot();
+    onUpdateClip(textClip.id,{[k]:v} as Partial<Clip>);
+  };
+
+  const labelStyle:React.CSSProperties={fontSize:10,color:C.muted,margin:"0 0 4px 0"};
+  const inputStyle:React.CSSProperties={
+    width:"100%",padding:"5px 8px",background:"#0D0D0D",
+    border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",
+    boxSizing:"border-box",
+  };
+
   return (
     <div style={{flex:1, overflowY:"auto", padding:"10px"}}>
-      <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0"}}>ADD TEXT LAYER</p>
-      <p style={{fontSize:9, color:C.muted, margin:"0 0 10px 0", opacity:0.7}}>Clips are placed at the current playhead position</p>
-      {items.map(item=>(
-        <button key={item.label} onClick={()=>addItem(item.label)} style={{
-          width:"100%", marginBottom:6, padding:"8px 10px",
-          background:"#0D0D0D", border:`1px solid ${C.border}`,
-          borderRadius:8, cursor:"pointer", textAlign:"left",
-          transition:"border-color 0.15s",
-        }}
-          onMouseEnter={e=>(e.currentTarget.style.borderColor=`${C.gold}55`)}
-          onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}
-        >
-          <p style={{fontSize:11, color:C.gold, margin:0, fontWeight:600}}>+ {item.label}</p>
-          <p style={{fontSize:9, color:C.muted, margin:0}}>{item.desc}</p>
-        </button>
-      ))}
-      {added.length>0 && (
-        <div style={{marginTop:10, padding:"6px 8px", background:"#0D1A0D", borderRadius:6, border:`1px solid ${C.teal}33`}}>
-          <p style={{fontSize:9, color:C.teal, margin:0}}>{added.length} text layer{added.length!==1?"s":""} added to timeline</p>
+      {/* Text editing panel when text clip is selected */}
+      {textClip ? (
+        <div>
+          <p style={{fontSize:10,color:C.gold,margin:"0 0 10px 0",fontWeight:600}}>{textClip.name}</p>
+
+          <p style={labelStyle}>CONTENT</p>
+          <textarea
+            value={textClip.textContent??""}
+            onChange={e=>upd("textContent",e.target.value)}
+            rows={3}
+            placeholder="Enter text here…"
+            style={{...inputStyle,resize:"vertical",lineHeight:1.5,fontFamily:"inherit",marginBottom:10}}
+          />
+
+          <p style={labelStyle}>FONT</p>
+          <select value={textClip.textFont??"Default"}
+            onChange={e=>upd("textFont",e.target.value)}
+            style={{...inputStyle,marginBottom:10,appearance:"auto",cursor:"pointer"}}>
+            {TEXT_FONTS.map(f=><option key={f} value={f} style={{background:"#1A1A1A"}}>{f}</option>)}
+          </select>
+
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            <div style={{flex:1}}>
+              <p style={labelStyle}>SIZE</p>
+              <input type="number" min={8} max={200} value={textClip.textSize??48}
+                onChange={e=>upd("textSize",Number(e.target.value))}
+                style={inputStyle}/>
+            </div>
+            <div style={{flex:1}}>
+              <p style={labelStyle}>COLOR</p>
+              <input type="color" value={textClip.textColor??"#FFFFFF"}
+                onChange={e=>upd("textColor",e.target.value)}
+                style={{...inputStyle,padding:"2px 4px",height:32,cursor:"pointer"}}/>
+            </div>
+          </div>
+
+          <p style={labelStyle}>ALIGNMENT</p>
+          <div style={{display:"flex",gap:4,marginBottom:10}}>
+            {(["left","center","right"] as const).map(a=>(
+              <button key={a} onClick={()=>upd("textAlign",a)} style={{
+                flex:1,padding:"5px",borderRadius:6,cursor:"pointer",fontSize:10,
+                background:textClip.textAlign===a?`${C.gold}22`:"#0D0D0D",
+                border:`1px solid ${textClip.textAlign===a?C.gold:C.border}`,
+                color:textClip.textAlign===a?C.gold:C.muted,
+              }}>{a[0].toUpperCase()+a.slice(1)}</button>
+            ))}
+          </div>
+
+          <p style={labelStyle}>POSITION</p>
+          <div style={{display:"flex",gap:4,marginBottom:10}}>
+            {(["top","center","bottom"] as const).map(pos=>(
+              <button key={pos} onClick={()=>upd("textPosition",pos)} style={{
+                flex:1,padding:"5px",borderRadius:6,cursor:"pointer",fontSize:10,
+                background:textClip.textPosition===pos?`${C.gold}22`:"#0D0D0D",
+                border:`1px solid ${textClip.textPosition===pos?C.gold:C.border}`,
+                color:textClip.textPosition===pos?C.gold:C.muted,
+              }}>{pos[0].toUpperCase()+pos.slice(1)}</button>
+            ))}
+          </div>
+
+          <p style={labelStyle}>ANIMATION</p>
+          <select value={textClip.textAnimation??"None"}
+            onChange={e=>upd("textAnimation",e.target.value)}
+            style={{...inputStyle,marginBottom:10,appearance:"auto",cursor:"pointer"}}>
+            {TEXT_ANIMATIONS.map(a=><option key={a} value={a} style={{background:"#1A1A1A"}}>{a}</option>)}
+          </select>
+
+          <div style={{padding:"6px 8px",background:"#0D1A0D",borderRadius:6,border:`1px solid ${C.teal}33`}}>
+            <p style={{fontSize:9,color:C.teal,margin:0}}>Changes apply live to the preview</p>
+          </div>
         </div>
+      ) : (
+        <>
+          <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>ADD TEXT LAYER</p>
+          <p style={{fontSize:9, color:C.muted, margin:"0 0 10px 0", opacity:0.7}}>Placed at the current playhead · click to select + edit</p>
+          {items.map(item=>(
+            <button key={item.label} onClick={()=>addItem(item.label)} style={{
+              width:"100%", marginBottom:6, padding:"8px 10px",
+              background:"#0D0D0D", border:`1px solid ${C.border}`,
+              borderRadius:8, cursor:"pointer", textAlign:"left",
+            }}
+              onMouseEnter={e=>(e.currentTarget.style.borderColor=`${C.gold}55`)}
+              onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}
+            >
+              <p style={{fontSize:11, color:C.gold, margin:0, fontWeight:600}}>+ {item.label}</p>
+              <p style={{fontSize:9, color:C.muted, margin:0}}>{item.desc}</p>
+            </button>
+          ))}
+          {added.length>0 && (
+            <div style={{marginTop:10, padding:"6px 8px", background:"#0D1A0D", borderRadius:6, border:`1px solid ${C.teal}33`}}>
+              <p style={{fontSize:9, color:C.teal, margin:0}}>{added.length} text layer{added.length!==1?"s":""} added · select to edit</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1953,12 +2227,15 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         <div ref={scrollRef} onMouseDown={handleLaneMouseDown} style={{flex:1, overflowX:"auto", overflowY:"auto", position:"relative", cursor:laneCursor}}>
           <div style={{minWidth:totalPx, position:"relative"}}>
             {/* Ruler */}
-            <div ref={rulerRef} onMouseDown={e=>{clickRuler(e);setPlayheadDrag(true);}} style={{
-              height:26, background:"#0C0C0C",
-              borderBottom:`1px solid ${C.border}`,
-              position:"sticky", top:0, zIndex:10,
-              cursor:"col-resize",
-            }}>
+            <div ref={rulerRef}
+              onMouseDown={e=>{clickRuler(e);setPlayheadDrag(true);}}
+              onContextMenu={e=>{e.preventDefault();clickRuler(e);}}
+              style={{
+                height:26, background:"#0C0C0C",
+                borderBottom:`1px solid ${C.border}`,
+                position:"sticky", top:0, zIndex:10,
+                cursor:"col-resize",
+              }}>
               {ticks.map(i=>(
                 <div key={i} style={{
                   position:"absolute", left:i*zoom,
@@ -2533,6 +2810,7 @@ export default function ProCutEditor() {
           onDetachAudio={detachAudio}
           tracks={tracks} allClips={clips} onToggleTrack={toggleTrackProp}
           playhead={playhead}
+          snapshot={snapshot}
         />
         <Timeline
           tracks={tracks} clips={clips} setClips={setClips}
