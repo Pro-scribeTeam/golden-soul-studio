@@ -227,18 +227,33 @@ export default function OutputHistory() {
             >
               {/* Thumbnail */}
               <div className="relative aspect-square bg-[#16161F] flex items-center justify-center">
-                {item.output_url || item.thumbnail_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.thumbnail_url || item.output_url}
-                    alt={item.section}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-[#F5F0E822] text-2xl">
-                    {item.section === "video" ? "🎬" : item.section === "image" ? "🖼️" : "✨"}
-                  </div>
-                )}
+                {(() => {
+                  const isVideoType = ["video", "motion", "lipsync"].includes(item.section);
+                  if (item.thumbnail_url) {
+                    // eslint-disable-next-line @next/next/no-img-element
+                    return <img src={item.thumbnail_url} alt={item.section} className="w-full h-full object-cover" />;
+                  }
+                  if (isVideoType && item.output_url) {
+                    return (
+                      <video
+                        src={item.output_url}
+                        className="w-full h-full object-cover"
+                        preload="metadata"
+                        muted
+                        playsInline
+                      />
+                    );
+                  }
+                  if (!isVideoType && item.output_url) {
+                    // eslint-disable-next-line @next/next/no-img-element
+                    return <img src={item.output_url} alt={item.section} className="w-full h-full object-cover" />;
+                  }
+                  return (
+                    <div className="text-[#F5F0E822] text-2xl">
+                      {item.section === "video" ? "🎬" : item.section === "image" ? "🖼️" : "✨"}
+                    </div>
+                  );
+                })()}
 
                 {/* Selection overlay */}
                 {selected.has(item.id) && (
