@@ -1402,13 +1402,16 @@ function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
 // ── ZONE 5: Timeline ───────────────────────────────────────────────────────
 const LABEL_W=160, TRACK_H=58, AUDIO_H=46;
 
-function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration }: {
+function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedId, setSelectedId, duration, snapshot, onToggleTrack, onAddTrack }: {
   tracks:Track[]; clips:Clip[]; setClips:React.Dispatch<React.SetStateAction<Clip[]>>;
   tool:Tool;
   playhead:number; setPlayhead:(t:number)=>void;
   zoom:number; setZoom:(z:number)=>void;
   selectedId:string|null; setSelectedId:(id:string|null)=>void;
   duration:number;
+  snapshot:()=>void;
+  onToggleTrack:(id:string, prop:"muted"|"locked"|"visible")=>void;
+  onAddTrack:()=>void;
 }) {
   const rulerRef=useRef<HTMLDivElement>(null);
   const scrollRef=useRef<HTMLDivElement>(null);
@@ -1416,6 +1419,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const [moveDrag,setMoveDrag]=useState<{clipId:string;startX:number;origStart:number}|null>(null);
   const [slipDrag,setSlipDrag]=useState<{clipId:string;startX:number;origInPoint:number}|null>(null);
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
+  const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
 
   // Slip tool — drag shifts inPoint
@@ -1458,6 +1462,29 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
   },[panDrag]);
 
+  // Trim handles — resize clip from left or right edge
+  useEffect(()=>{
+    if(!trimDrag) return;
+    const move=(e:MouseEvent)=>{
+      const delta=(e.clientX-trimDrag.startX)/zoom;
+      setClips(p=>p.map(c=>{
+        if(c.id!==trimDrag.clipId) return c;
+        if(trimDrag.edge==="left"){
+          const newStart=Math.max(0, Math.round((trimDrag.origStart+delta)*10)/10);
+          const newDur=Math.max(0.2, Math.round((trimDrag.origDuration-delta)*10)/10);
+          return {...c, start:newStart, duration:newDur};
+        } else {
+          const newDur=Math.max(0.2, Math.round((trimDrag.origDuration+delta)*10)/10);
+          return {...c, duration:newDur};
+        }
+      }));
+    };
+    const up=()=>setTrimDrag(null);
+    window.addEventListener("mousemove",move);
+    window.addEventListener("mouseup",up);
+    return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+  },[trimDrag,zoom,setClips]);
+
   // Drop from assets panel
   const handleDrop=(e:React.DragEvent<HTMLDivElement>, track:Track)=>{
     e.preventDefault();
@@ -1470,6 +1497,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     const secs=Math.max(0,Math.round(((e.clientX-rect.left)/zoom)*10)/10);
     const clipType:Clip["type"]=asset.type==="audio"?"audio":"video";
     const clipId=`c${Date.now()}`;
+    snapshot();
     setClips(p=>[...p,{
       id:clipId,trackId:track.id,name:asset.name,
       start:secs,duration:asset.type==="audio"?30:10,
@@ -1492,6 +1520,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     if(tool==="select"){
       e.preventDefault();e.stopPropagation();
       setSelectedId(clip.id);
+      snapshot();
       setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
     } else if(tool==="razor"){
       e.preventDefault();e.stopPropagation();
@@ -1501,6 +1530,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
       const durB=clip.duration-durA;
       if(durA>0.1&&durB>0.1){
         const splitAt=clip.start+relSecs;
+        snapshot();
         setClips(p=>[
           ...p.filter(c=>c.id!==clip.id),
           {...clip,id:`${clip.id}_a`,duration:durA},
@@ -1512,11 +1542,13 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
       // Slip: drag left/right to shift source in-point without moving the clip
       e.preventDefault(); e.stopPropagation();
       setSelectedId(clip.id);
+      snapshot();
       setSlipDrag({clipId:clip.id,startX:e.clientX,origInPoint:clip.inPoint??0});
     } else if(tool==="slide"){
       // Slide: move clip and ripple neighbors
       e.preventDefault();e.stopPropagation();
       setSelectedId(clip.id);
+      snapshot();
       setMoveDrag({clipId:clip.id,startX:e.clientX,origStart:clip.start});
     } else if(tool==="hand"||tool==="zoom") {
       // let event bubble to handleLaneMouseDown for pan / zoom
@@ -1573,7 +1605,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         height:30, background:C.panel, borderBottom:`1px solid ${C.border}`,
         display:"flex", alignItems:"center", padding:"0 8px", gap:8, flexShrink:0,
       }}>
-        <button style={sBtnSty()}><Plus size={11}/> Track</button>
+        <button onClick={onAddTrack} style={sBtnSty()}><Plus size={11}/> Track</button>
         <button style={sBtnSty()}><Layers size={11}/> Nest</button>
         <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:8}}>
           <span style={{fontSize:10, color:C.muted}}>Zoom</span>
@@ -1618,14 +1650,14 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                 }}>{t.type[0].toUpperCase()}</span>
                 <span style={{fontSize:10, color:C.text, flex:1, overflow:"hidden",
                   whiteSpace:"nowrap", textOverflow:"ellipsis"}}>{t.name}</span>
-                <button onClick={()=>{}} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:1}}>
+                <button onClick={()=>onToggleTrack(t.id,"visible")} style={{background:"none",border:"none",cursor:"pointer",color:t.visible?C.muted:`${C.red}88`,padding:1}}>
                   {t.visible?<Eye size={10}/>:<EyeOff size={10}/>}
                 </button>
-                <button style={{background:"none",border:"none",cursor:"pointer",color:C.muted,padding:1}}>
+                <button onClick={()=>onToggleTrack(t.id,"locked")} style={{background:"none",border:"none",cursor:"pointer",color:t.locked?C.gold:C.muted,padding:1}}>
                   {t.locked?<Lock size={10}/>:<Unlock size={10}/>}
                 </button>
                 {t.type==="audio" && (
-                  <button style={{
+                  <button onClick={()=>onToggleTrack(t.id,"muted")} style={{
                     background:"none",border:"none",cursor:"pointer",padding:1,
                     color:t.muted?C.red:C.muted, fontSize:9, fontWeight:700,
                   }}>M</button>
@@ -1734,8 +1766,12 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                           whiteSpace:"nowrap", pointerEvents:"none",
                         }}>{clip.name}</span>
                         {/* Trim handles */}
-                        <div style={{position:"absolute",left:0,top:0,bottom:0,width:5,cursor:"w-resize"}}/>
-                        <div style={{position:"absolute",right:0,top:0,bottom:0,width:5,cursor:"e-resize"}}/>
+                        <div
+                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          style={{position:"absolute",left:0,top:0,bottom:0,width:5,cursor:"w-resize"}}/>
+                        <div
+                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          style={{position:"absolute",right:0,top:0,bottom:0,width:5,cursor:"e-resize"}}/>
                       </div>
                     );
                   })}
@@ -1946,9 +1982,18 @@ export default function ProCutEditor() {
     try{ return JSON.parse(localStorage.getItem("procut-assets")||"[]"); } catch{ return []; }
   });
   const importFileRef=useRef<HTMLInputElement>(null);
-  const [tracks]=useState<Track[]>(INIT_TRACKS);
+  const [tracks, setTracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
+
+  const toggleTrackProp=useCallback((id:string, prop:"muted"|"locked"|"visible")=>{
+    setTracks(p=>p.map(t=>t.id===id?{...t,[prop]:!t[prop]}:t));
+  },[]);
+
+  const addTrack=useCallback(()=>{
+    const vCount=tracks.filter(t=>t.type==="video").length;
+    setTracks(p=>[...p,{id:`v${Date.now()}`,type:"video",name:`Video ${vCount+1}`,muted:false,locked:false,visible:true}]);
+  },[tracks]);
 
   // Collapse sidebar when editor opens
   useEffect(()=>{ setCollapsed(true); },[setCollapsed]);
@@ -2108,6 +2153,9 @@ export default function ProCutEditor() {
           zoom={zoom} setZoom={setZoom}
           selectedId={selectedId} setSelectedId={setSelectedId}
           duration={duration}
+          snapshot={snapshot}
+          onToggleTrack={toggleTrackProp}
+          onAddTrack={addTrack}
         />
       </div>
 
