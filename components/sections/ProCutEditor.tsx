@@ -2794,7 +2794,9 @@ function ExportPanel({ onClose, duration, clips, tracks, playhead, projectName }
       // Determine output resolution
       const [outW,outH]=resolution==="4K"?[3840,2160]:resolution==="720p"?[1280,720]:[1920,1080];
       const fps=parseInt(frameRate)||30;
-      const totalDuration=duration; // project duration in seconds
+      // Use actual content end time, not the full project duration
+      const contentEnd=mediaClips.reduce((max,c)=>Math.max(max,c.start+c.duration),0);
+      const totalDuration=Math.min(duration, contentEnd||duration);
 
       const inputs:string[]=[];
       const filterParts:string[]=[];
@@ -2891,6 +2893,7 @@ function ExportPanel({ onClose, duration, clips, tracks, playhead, projectName }
         "-map", videoChain!,
         "-map", audioChain,
         "-c:v", videoCodec,
+        ...(videoCodec==="libx264"||videoCodec==="libx265"?["-preset","ultrafast"]:videoCodec==="libaom-av1"?["-cpu-used","8"]:[]),
         "-c:a", "aac",
         "-t", totalDuration.toFixed(3),
         "-y", outFile,
