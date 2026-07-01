@@ -48,8 +48,10 @@ interface Clip {
   colorAdjustments?: Record<string,number>; // named slider values
   volume?: number;   // 0–200
   muted?: boolean;
-  transition?: string;     // transition at start of clip
+  transition?: string;        // transition at clip in-point (left end)
   transitionDuration?: number; // seconds, default 1.0
+  transitionEnd?: string;     // transition at clip out-point (right end)
+  transitionEndDuration?: number;
   // Text clip properties
   textContent?: string;
   textFont?: string;
@@ -1201,7 +1203,7 @@ function InspectorTab({ clip, onUpdateClip, onDetachAudio, playhead }: {
 
 // ── Tab: Effects ───────────────────────────────────────────────────────────
 function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:string,updates:Partial<Clip>)=>void }) {
-  const [q,setQ]=useState(""), [cat,setCat]=useState("All");
+  const [q,setQ]=useState(""), [cat,setCat]=useState("All"), [transPos,setTransPos]=useState<"in"|"out">("in");
   const cats=["All","Motion","Blur","Grain","Lens","Overlays","Particles","Glitch","Stylize","Distortion"];
   const filtered=EFFECTS.filter(e=>(cat==="All"||e.cat===cat)&&e.name.toLowerCase().includes(q.toLowerCase()));
   const appliedFx = clip?.effects ?? [];
@@ -1265,14 +1267,26 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
         <div style={{marginTop:14, paddingTop:10, borderTop:`1px solid ${C.border}`}}>
           <p style={{fontSize:10, color:C.muted, margin:"0 0 8px 0", letterSpacing:"0.05em"}}>TRANSITIONS</p>
           {!clip&&<p style={{fontSize:10,color:`${C.muted}88`,margin:0}}>Select a clip to add a transition</p>}
-          <p style={{fontSize:9,color:`${C.muted}88`,margin:"0 0 6px 0"}}>Drag onto a clip or click Set</p>
+          <p style={{fontSize:9,color:`${C.muted}88`,margin:"0 0 6px 0"}}>Drag onto clip edge · or choose IN / OUT then click Set</p>
+          {/* IN / OUT toggle */}
+          <div style={{display:"flex", gap:4, marginBottom:8}}>
+            {(["in","out"] as const).map(pos=>(
+              <button key={pos} onClick={()=>setTransPos(pos)} style={{
+                flex:1, padding:"4px 0", borderRadius:5, fontSize:10, cursor:"pointer",
+                background: transPos===pos?`${C.gold}22`:"transparent",
+                border:`1px solid ${transPos===pos?C.gold+"55":C.border}`,
+                color: transPos===pos?C.gold:C.muted,
+              }}>{pos==="in"?"▶ CLIP IN":"CLIP OUT ◀"}</button>
+            ))}
+          </div>
           {TRANSITIONS.map(t=>{
-            const active=clip?.transition===t.name;
+            const active = transPos==="in" ? clip?.transition===t.name : clip?.transitionEnd===t.name;
             return (
               <div key={t.name}
                 draggable
                 onDragStart={e=>{
                   e.dataTransfer.setData("application/procut-transition",t.name);
+                  e.dataTransfer.setData("application/procut-transition-pos", transPos);
                   e.dataTransfer.effectAllowed="copy";
                 }}
                 style={{
@@ -1288,7 +1302,11 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
                 </div>
                 <button
                   disabled={!clip}
-                  onClick={()=>{ if(!clip) return; onUpdateClip(clip.id,{transition:active?undefined:t.name}); }}
+                  onClick={()=>{
+                    if(!clip) return;
+                    if(transPos==="in") onUpdateClip(clip.id,{transition:active?undefined:t.name});
+                    else onUpdateClip(clip.id,{transitionEnd:active?undefined:t.name});
+                  }}
                   style={{
                     padding:"3px 8px", borderRadius:5, fontSize:10, cursor:clip?"pointer":"default",
                     background: active?`${C.red}22`:`${C.gold}22`,
@@ -1298,19 +1316,24 @@ function EffectsTab({ clip, onUpdateClip }: { clip:Clip|null; onUpdateClip:(id:s
               </div>
             );
           })}
-          {/* Duration slider when transition is set */}
-          {clip?.transition && (
+          {/* Duration slider */}
+          {clip && (transPos==="in" ? clip.transition : clip.transitionEnd) && (
             <div style={{marginTop:8, padding:"8px 10px", background:"#0D0D0D", borderRadius:7, border:`1px solid ${C.gold}33`}}>
               <div style={{display:"flex", justifyContent:"space-between", marginBottom:4}}>
-                <p style={{fontSize:9, color:C.muted, margin:0}}>DURATION</p>
-                <span style={{fontSize:9, color:C.gold}}>{(clip.transitionDuration??1).toFixed(1)}s</span>
+                <p style={{fontSize:9, color:C.muted, margin:0}}>{transPos==="in"?"IN":"OUT"} DURATION</p>
+                <span style={{fontSize:9, color:C.gold}}>
+                  {(transPos==="in" ? (clip.transitionDuration??1) : (clip.transitionEndDuration??1)).toFixed(1)}s
+                </span>
               </div>
-              <input type="range" min={0.5} max={3} step={0.5}
-                value={clip.transitionDuration??1}
-                onChange={e=>onUpdateClip(clip.id,{transitionDuration:Number(e.target.value)})}
+              <input type="range" min={0.1} max={3} step={0.1}
+                value={transPos==="in" ? (clip.transitionDuration??1) : (clip.transitionEndDuration??1)}
+                onChange={e=>{
+                  if(transPos==="in") onUpdateClip(clip.id,{transitionDuration:Number(e.target.value)});
+                  else onUpdateClip(clip.id,{transitionEndDuration:Number(e.target.value)});
+                }}
                 style={{width:"100%", accentColor:C.gold}}/>
               <div style={{display:"flex", justifyContent:"space-between", marginTop:2}}>
-                <span style={{fontSize:8, color:`${C.muted}66`}}>0.5s</span>
+                <span style={{fontSize:8, color:`${C.muted}66`}}>0.1s</span>
                 <span style={{fontSize:8, color:`${C.muted}66`}}>3s</span>
               </div>
             </div>
@@ -2390,7 +2413,16 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                         onDrop={e=>{
                           e.stopPropagation();
                           const trans=e.dataTransfer.getData("application/procut-transition");
-                          if(trans){snapshot();onUpdateClip(clip.id,{transition:trans});}
+                          if(trans){
+                            const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
+                            const relX=(e.clientX-rect.left)/rect.width;
+                            // Prefer explicit pos from panel; fallback: left 40% = in, right 40% = out
+                            const pos=e.dataTransfer.getData("application/procut-transition-pos");
+                            const isOut = pos==="out" || (pos===""&&relX>0.6);
+                            snapshot();
+                            if(isOut) onUpdateClip(clip.id,{transitionEnd:trans});
+                            else onUpdateClip(clip.id,{transition:trans});
+                          }
                         }}
                         style={{
                           position:"absolute",
@@ -2442,35 +2474,42 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             padding:"1px 4px", borderRadius:3, pointerEvents:"none",
                           }}>M</span>
                         )}
-                        {/* Transition marker at clip start */}
+                        {/* Transition marker at clip in-point (left) */}
                         {clip.transition&&(
                           <div style={{
-                            position:"absolute", left:0, top:0, bottom:0, width:6,
+                            position:"absolute", left:0, top:0, bottom:0, width:8,
                             background:`linear-gradient(to right, ${C.gold}88, transparent)`,
                             pointerEvents:"none",
-                          }} title={`Transition: ${clip.transition}`}/>
+                          }} title={`In Transition: ${clip.transition} (${(clip.transitionDuration??1).toFixed(1)}s)`}/>
                         )}
-                        {/* Trim handles — visual only in trim mode (pointer-events:none so handleClipInteract handles all clicks) */}
-                        {/* In select mode they are interactive (edge-trim without switching tools) */}
+                        {/* Transition marker at clip out-point (right) */}
+                        {clip.transitionEnd&&(
+                          <div style={{
+                            position:"absolute", right:0, top:0, bottom:0, width:8,
+                            background:`linear-gradient(to left, ${C.gold}88, transparent)`,
+                            pointerEvents:"none",
+                          }} title={`Out Transition: ${clip.transitionEnd} (${(clip.transitionEndDuration??1).toFixed(1)}s)`}/>
+                        )}
+                        {/* Trim handles — always interactive; wider + gold in trim mode */}
                         <div
-                          onMouseDown={tool==="trim"?undefined:e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
                           style={{
                             position:"absolute",left:0,top:0,bottom:0,
                             width:tool==="trim"?12:6,
-                            cursor:tool==="trim"?"w-resize":"w-resize",
+                            cursor:"w-resize",
                             background:tool==="trim"?`${C.gold}55`:"transparent",
                             borderRadius:"4px 0 0 4px",
-                            pointerEvents:tool==="trim"?"none":"auto",
+                            pointerEvents:"auto",
                           }}/>
                         <div
-                          onMouseDown={tool==="trim"?undefined:e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
                           style={{
                             position:"absolute",right:0,top:0,bottom:0,
                             width:tool==="trim"?12:6,
-                            cursor:tool==="trim"?"e-resize":"e-resize",
+                            cursor:"e-resize",
                             background:tool==="trim"?`${C.gold}55`:"transparent",
                             borderRadius:"0 4px 4px 0",
-                            pointerEvents:tool==="trim"?"none":"auto",
+                            pointerEvents:"auto",
                           }}/>
                       </div>
                     );
