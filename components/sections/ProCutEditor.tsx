@@ -11,7 +11,7 @@ import {
   SkipBack, SkipForward, Square, Volume2, Eye, EyeOff,
   Lock, Unlock, X, Search, ChevronDown, ChevronRight,
   AlertTriangle, Check, Loader2, Film, Music2, Layers,
-  Upload, Wand2, BarChart2, Mic, BookOpen, Star, Clock,
+  Upload, Wand2, BarChart2, Mic, BookOpen, Star, Clock, Save, FilePlus,
 } from "lucide-react";
 
 // ── Colors (spec 2.1) ──────────────────────────────────────────────────────
@@ -299,9 +299,10 @@ function HoldTBtn({ icon:Icon, onAction, title }: {
 }
 
 // ── ZONE 1: Top Bar ────────────────────────────────────────────────────────
-function TopBar({ name, setName, onExport, onSettings, onCut, onCopy, onPaste, onDelete, onUndo, onRedo, hasSelection, canPaste }: {
+function TopBar({ name, setName, onExport, onSettings, onSave, onNew, onCut, onCopy, onPaste, onDelete, onUndo, onRedo, hasSelection, canPaste }: {
   name:string; setName:(v:string)=>void;
   onExport:()=>void; onSettings:()=>void;
+  onSave:()=>void; onNew:()=>void;
   onCut:()=>void; onCopy:()=>void; onPaste:()=>void; onDelete:()=>void;
   onUndo:()=>void; onRedo:()=>void;
   hasSelection:boolean; canPaste:boolean;
@@ -374,6 +375,16 @@ function TopBar({ name, setName, onExport, onSettings, onCut, onCopy, onPaste, o
 
       {/* RIGHT */}
       <div style={{display:"flex", alignItems:"center", gap:6, flex:1, justifyContent:"flex-end"}}>
+        <button onClick={onNew} style={{
+          display:"flex", alignItems:"center", gap:4, padding:"4px 8px",
+          borderRadius:6, background:"transparent",
+          border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer", fontSize:11,
+        }}><FilePlus size={13}/> New</button>
+        <button onClick={onSave} style={{
+          display:"flex", alignItems:"center", gap:4, padding:"4px 8px",
+          borderRadius:6, background:"transparent",
+          border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer", fontSize:11,
+        }}><Save size={13}/> Save</button>
         <button onClick={onSettings} style={{
           display:"flex", alignItems:"center", gap:4, padding:"4px 8px",
           borderRadius:6, background:"transparent",
@@ -532,7 +543,12 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     const url = activeAudioClip?.url ?? "";
     const clipStart = activeAudioClip?.start ?? 0;
     const inPoint = activeAudioClip?.inPoint ?? 0;
-    const target = Math.max(0, inPoint + (playhead - clipStart));
+    // If this is detached audio (same URL as active video), sync from video element's position
+    const vid = videoRef.current;
+    const isDetached = !!(url && activeVideoClip?.url && url === activeVideoClip.url);
+    const target = isDetached && vid && vid.readyState >= 2
+      ? vid.currentTime
+      : Math.max(0, inPoint + (playhead - clipStart));
 
     if(loadedAudioUrl.current !== url) {
       loadedAudioUrl.current = url;
@@ -540,7 +556,8 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       if(url) {
         aud.src = url;
         aud.addEventListener("loadedmetadata", ()=>{
-          aud.currentTime = target;
+          const syncTarget = isDetached && vid && vid.readyState >= 2 ? vid.currentTime : target;
+          aud.currentTime = syncTarget;
           if(playing) aud.play().catch(()=>{});
         }, {once:true});
         aud.load();
@@ -558,7 +575,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       if(!aud.paused) aud.pause();
       aud.currentTime = target;
     }
-  },[playing, playhead, activeAudioClip]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[playing, playhead, activeAudioClip, activeVideoClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply clip speed to video playback rate
   useEffect(()=>{
@@ -582,6 +599,23 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     aud.volume = Math.min(1, (activeAudioClip?.volume ?? 100) / 100);
     aud.muted = activeAudioClip?.muted ?? false;
   },[activeAudioClip?.volume, activeAudioClip?.muted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep detached audio in sync with video during playback (same source URL = detached audio)
+  useEffect(()=>{
+    if(!playing||!activeAudioClip||!activeVideoClip) return;
+    if(activeAudioClip.url!==activeVideoClip.url) return;
+    let rafId:number;
+    const sync=()=>{
+      const vid=videoRef.current, aud=audioRef.current;
+      if(vid&&aud&&!vid.paused&&!aud.paused){
+        const drift=Math.abs(aud.currentTime-vid.currentTime);
+        if(drift>0.1) aud.currentTime=vid.currentTime;
+      }
+      rafId=requestAnimationFrame(sync);
+    };
+    rafId=requestAnimationFrame(sync);
+    return()=>cancelAnimationFrame(rafId);
+  },[playing,activeAudioClip?.url,activeVideoClip?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const videoFilter = getClipCSSFilter(activeVideoClip);
   const videoOpacity = (activeVideoClip?.opacity ?? 100) / 100;
@@ -2579,10 +2613,58 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
 }
 
 // ── Export Panel ───────────────────────────────────────────────────────────
-function ExportPanel({ onClose, duration }: { onClose:()=>void; duration:number }) {
+function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
+  onClose:()=>void; duration:number;
+  clips:Clip[]; playhead:number; projectName:string;
+}) {
   const [platform,setPlatform]=useState("YouTube");
   const [phase,setPhase]=useState<"form"|"progress"|"done">("form");
   const [progress,setProgress]=useState(0);
+
+  const captureFrame=useCallback(():string|null=>{
+    const vid=document.querySelector("video") as HTMLVideoElement|null;
+    if(!vid||!vid.videoWidth) return null;
+    const canvas=document.createElement("canvas");
+    canvas.width=vid.videoWidth; canvas.height=vid.videoHeight;
+    canvas.getContext("2d")?.drawImage(vid,0,0);
+    return canvas.toDataURL("image/png");
+  },[]);
+
+  const handleExportFrame=useCallback(()=>{
+    const dataUrl=captureFrame();
+    if(!dataUrl){ alert("No video frame at current playhead. Add a video clip and scrub to a frame first."); return; }
+    const a=document.createElement("a");
+    a.href=dataUrl; a.download=`${projectName}-frame-${Math.round(playhead)}s.png`; a.click();
+  },[captureFrame,projectName,playhead]);
+
+  const handleExportThumbnail=useCallback(()=>{
+    const dataUrl=captureFrame();
+    if(!dataUrl){ alert("No video frame available for thumbnail."); return; }
+    const a=document.createElement("a");
+    a.href=dataUrl; a.download=`${projectName}-thumbnail.png`; a.click();
+  },[captureFrame,projectName]);
+
+  const handleExportStems=useCallback(()=>{
+    const audioClips=clips.filter(c=>c.type==="audio"&&c.url);
+    if(!audioClips.length){ alert("No audio clips on the timeline to export as stems."); return; }
+    audioClips.forEach((clip,i)=>{
+      setTimeout(()=>{
+        const a=document.createElement("a");
+        a.href=clip.url!; a.download=`stem-${i+1}-${clip.name}.m4a`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      },i*400);
+    });
+  },[clips]);
+
+  const handleExportGif=useCallback(()=>{
+    setPhase("progress");
+    let p=0;
+    const iv=setInterval(()=>{
+      p+=Math.random()*14+6;
+      if(p>=100){ p=100; clearInterval(iv); setProgress(100); setTimeout(()=>setPhase("done"),600); }
+      else setProgress(Math.floor(p));
+    },200);
+  },[]);
 
   const startExport=()=>{
     setPhase("progress");
@@ -2627,7 +2709,7 @@ function ExportPanel({ onClose, duration }: { onClose:()=>void; duration:number 
               borderRadius:8, padding:"10px 12px", marginBottom:14,
             }}>
               {[
-                ["Project","Untitled Project"],
+                ["Project", projectName],
                 ["Duration", fmtTC(duration)],
                 ["Est. File Size","~240 MB"],
               ].map(([l,v])=>(
@@ -2689,12 +2771,17 @@ function ExportPanel({ onClose, duration }: { onClose:()=>void; duration:number 
               <Download size={14}/> Export Video
             </button>
             <div style={{display:"flex", gap:6, marginTop:8}}>
-              {["Export Stems","Export Frame","Export GIF","Export Thumbnail"].map(a=>(
-                <button key={a} style={{
+              {([
+                ["Export Stems",     handleExportStems],
+                ["Export Frame",     handleExportFrame],
+                ["Export GIF",       handleExportGif],
+                ["Export Thumbnail", handleExportThumbnail],
+              ] as [string,(()=>void)][]).map(([label, handler])=>(
+                <button key={label} onClick={handler} style={{
                   flex:1, padding:"5px 4px", borderRadius:6, fontSize:9,
                   background:"transparent", border:`1px solid ${C.border}`,
                   color:C.muted, cursor:"pointer",
-                }}>{a}</button>
+                }}>{label}</button>
               ))}
             </div>
           </>}
@@ -2797,6 +2884,24 @@ export default function ProCutEditor() {
   const [tracks, setTracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
+
+  const saveProject=useCallback(()=>{
+    const data={projectName,tracks,clips};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=`${projectName.replace(/\s+/g,"-")}.procut.json`; a.click();
+    URL.revokeObjectURL(url);
+  },[projectName,tracks,clips]);
+
+  const newProject=useCallback(()=>{
+    if(!confirm("Start a new project? Unsaved changes will be lost.")) return;
+    setClips([]); setTracks(INIT_TRACKS);
+    setProjectName("Untitled Project");
+    setSelectedIds(new Set()); setPrimaryId(null);
+    setPlayhead(0); setPlaying(false);
+    undoStack.current=[]; redoStack.current=[];
+  },[]);
 
   const toggleTrackProp=useCallback((id:string, prop:"muted"|"locked"|"visible")=>{
     setTracks(p=>p.map(t=>t.id===id?{...t,[prop]:!t[prop]}:t));
@@ -2964,6 +3069,7 @@ export default function ProCutEditor() {
           name={projectName} setName={setProjectName}
           onExport={()=>setShowExport(true)}
           onSettings={()=>setShowSettings(true)}
+          onSave={saveProject} onNew={newProject}
           onCut={cutClip} onCopy={copyClip} onPaste={pasteClip} onDelete={deleteClip}
           onUndo={undo} onRedo={redo}
           hasSelection={selectedIds.size>0} canPaste={clipboard.length>0}
@@ -3026,7 +3132,7 @@ export default function ProCutEditor() {
         />
       </div>
 
-      {showExport && <ExportPanel onClose={()=>setShowExport(false)} duration={duration}/>}
+      {showExport && <ExportPanel onClose={()=>setShowExport(false)} duration={duration} clips={clips} playhead={playhead} projectName={projectName}/>}
 
       {showSettings && (
         <div style={{
