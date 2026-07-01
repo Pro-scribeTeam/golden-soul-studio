@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useLayout } from "@/components/layout/LayoutProvider";
+import { storeMedia, restoreUrl } from "@/lib/mediaStore";
 import {
   ChevronLeft, Undo2, Redo2, Settings, Share2, Download,
   Scissors, MousePointer2, MoveHorizontal, ArrowLeftRight,
@@ -40,6 +41,7 @@ interface Clip {
   type: "video"|"audio"|"text";
   src: "generated"|"uploaded"|"drive";
   url?: string;
+  mediaKey?: string; // stable IndexedDB key — survives page reload
   inPoint?: number;  // source in-point seconds (for razor splits)
   speed?: number;    // percentage, 100 = normal
   opacity?: number;  // 0–100
@@ -910,7 +912,7 @@ function InspectorPanel({ activeTab, setActiveTab, selectedClip, narrative, setN
 }
 
 // ── Tab: Assets ────────────────────────────────────────────────────────────
-interface Asset { name:string; dur:string; type:"video"|"audio"|"image"; src:"uploaded"|"generated"|"drive"; url?:string; thumb?:string; }
+interface Asset { name:string; dur:string; type:"video"|"audio"|"image"; src:"uploaded"|"generated"|"drive"; url?:string; thumb?:string; mediaKey?:string; }
 interface HistoryItem { id:string; section:string; model:string; prompt?:string; output_url?:string; thumbnail_url?:string; created_at:string; }
 
 function sectionToType(s:string): "video"|"image" {
@@ -965,16 +967,23 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
     const files=Array.from(e.target.files||[]);
     const newOnes:Asset[]=files.map(f=>{
       const type=detectFileType(f);
+      const mediaKey=`media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       return {
         name: f.name.replace(/\.[^.]+$/,""),
         dur: type==="image"?`${(f.size/1024).toFixed(0)}KB`:"—",
         type, src:"uploaded",
         url: URL.createObjectURL(f),
+        mediaKey,
       };
     });
     // Optimistically add assets first so UI responds immediately
     setAssets(p=>[...p,...newOnes]);
     e.target.value="";
+    // Store blobs in IndexedDB for save/import persistence
+    for(let i=0;i<files.length;i++){
+      const key=newOnes[i].mediaKey;
+      if(key) storeMedia(key, files[i]).catch(()=>{});
+    }
     // Then extract first-frame thumbnails for videos in background
     for(const asset of newOnes){
       if(asset.type==="video"&&asset.url){
@@ -1046,7 +1055,7 @@ function AssetsTab({ assets, setAssets }: { assets:Asset[]; setAssets:React.Disp
                     draggable
                     onDragStart={e=>{
                       e.dataTransfer.effectAllowed="copy";
-                      e.dataTransfer.setData("application/procut-asset", JSON.stringify({name:a.name,type:a.type,src:a.src,url:a.url}));
+                      e.dataTransfer.setData("application/procut-asset", JSON.stringify({name:a.name,type:a.type,src:a.src,url:a.url,mediaKey:a.mediaKey}));
                     }}
                     style={{background:"#0D0D0D", border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", cursor:"grab", position:"relative"}}>
                     <div style={{height:52, background:a.type==="video"?C.dTeal:a.type==="audio"?C.dBlue:C.dPurp, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", position:"relative"}}>
@@ -2190,7 +2199,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     setDragOver(null);
     const raw=e.dataTransfer.getData("application/procut-asset");
     if(!raw) return;
-    let asset:{name:string;type:string;src:string;url?:string};
+    let asset:{name:string;type:string;src:string;url?:string;mediaKey?:string};
     try{asset=JSON.parse(raw);}catch{return;}
     const rect=e.currentTarget.getBoundingClientRect();
     const secs=Math.max(0,Math.round(((e.clientX-rect.left)/zoom)*10)/10);
@@ -2202,7 +2211,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     setClips(p=>[...p,{
       id:clipId,trackId:track.id,name:asset.name,
       start:secs,duration:asset.type==="audio"?30:10,
-      type:clipType,src:asset.src as Clip["src"],url:asset.url,
+      type:clipType,src:asset.src as Clip["src"],url:asset.url,mediaKey:asset.mediaKey,
     }]);
     // Read actual media duration and update clip
     if(asset.url&&(asset.type==="video"||asset.type==="audio")){
@@ -2685,9 +2694,9 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
 }
 
 // ── Export Panel ───────────────────────────────────────────────────────────
-function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
+function ExportPanel({ onClose, duration, clips, tracks, playhead, projectName }: {
   onClose:()=>void; duration:number;
-  clips:Clip[]; playhead:number; projectName:string;
+  clips:Clip[]; tracks:Track[]; playhead:number; projectName:string;
 }) {
   const [platform,setPlatform]=useState("YouTube");
   const [phase,setPhase]=useState<"form"|"progress"|"done">("form");
@@ -2744,19 +2753,166 @@ function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
   const [codec,setCodec]=useState("H.264");
   const [aspectRatio,setAspectRatio]=useState("16:9");
 
-  const handleDownloadAll=useCallback(()=>{
-    const mediaClips=clips.filter(c=>c.url&&(c.type==="video"||c.type==="audio"));
-    if(!mediaClips.length){alert("No media clips on the timeline to download.");return;}
-    const ext=codec.includes("ProRes")?"mov":codec==="AV1"?"webm":"mp4";
-    mediaClips.forEach((clip,i)=>{
-      setTimeout(()=>{
-        const a=document.createElement("a");
-        a.href=clip.url!;
-        a.download=`${projectName}-${resolution}-${codec.replace(/\s/g,"-")}.${ext}`;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      },i*500);
-    });
-  },[clips,projectName,resolution,codec]);
+  const handleDownloadAll=useCallback(async()=>{
+    const mediaClips=clips.filter(c=>c.url&&(c.type==="video"||c.type==="audio")&&!tracks.find(t=>t.id===c.trackId)?.muted&&!c.muted);
+    if(!mediaClips.length){alert("No active media clips on the timeline to export.");return;}
+    setPhase("progress"); setProgress(2);
+
+    try{
+      // Dynamically import FFmpeg (keeps initial bundle small)
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+      const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
+
+      const ffmpeg = new FFmpeg();
+      ffmpeg.on("progress",({progress})=>setProgress(Math.max(2,Math.min(95,Math.round(progress*100)))));
+
+      // Load single-threaded core (no COOP/COEP headers required)
+      setProgress(5);
+      await ffmpeg.load({
+        coreURL: await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.9/dist/umd/ffmpeg-core.js","text/javascript"),
+        wasmURL: await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.9/dist/umd/ffmpeg-core.wasm","application/wasm"),
+      });
+      setProgress(15);
+
+      // Deduplicate URLs so each source file is written once
+      const urlToFile = new Map<string,string>();
+      let fileIdx=0;
+      for(const c of mediaClips){
+        if(!urlToFile.has(c.url!)){
+          const ext=c.type==="audio"?"m4a":"mp4";
+          const fname=`src${fileIdx++}.${ext}`;
+          await ffmpeg.writeFile(fname, await fetchFile(c.url!));
+          urlToFile.set(c.url!,fname);
+        }
+      }
+      setProgress(40);
+
+      // Separate video and audio clips
+      const videoClips=mediaClips.filter(c=>c.type==="video");
+      const audioClips=mediaClips.filter(c=>c.type==="audio");
+
+      // Determine output resolution
+      const [outW,outH]=resolution==="4K"?[3840,2160]:resolution==="720p"?[1280,720]:[1920,1080];
+      const fps=parseInt(frameRate)||30;
+      const totalDuration=duration; // project duration in seconds
+
+      const inputs:string[]=[];
+      const filterParts:string[]=[];
+      const inputArgs:string[]=[];
+
+      // Add each unique source as an input
+      const addedFiles=new Set<string>();
+      const fileInputIndex=new Map<string,number>();
+      let inputCount=0;
+      for(const c of mediaClips){
+        const fname=urlToFile.get(c.url!)!;
+        if(!addedFiles.has(fname)){
+          addedFiles.add(fname);
+          fileInputIndex.set(fname,inputCount++);
+          inputArgs.push("-i",fname);
+        }
+      }
+
+      // Build video filter chain
+      let videoChain:string|null=null;
+      const speedRate=(c:Clip)=>c.speed?c.speed/100:1;
+      const srcDur=(c:Clip)=>c.duration*speedRate(c);
+
+      if(videoClips.length===0){
+        // Audio-only project: generate black video
+        filterParts.push(`color=c=black:s=${outW}x${outH}:r=${fps}:d=${totalDuration}[vout]`);
+        videoChain="[vout]";
+      } else {
+        // Build per-clip video filters
+        filterParts.push(`color=c=black:s=${outW}x${outH}:r=${fps}:d=${totalDuration}[vbase]`);
+        let prevLabel="[vbase]";
+        videoClips.forEach((c,i)=>{
+          const fi=fileInputIndex.get(urlToFile.get(c.url!)!)!;
+          const ip=c.inPoint??0;
+          const sd=srcDur(c);
+          const sp=speedRate(c);
+          const vLabel=`[vtmp${i}]`;
+          const scaledLabel=`[vsc${i}]`;
+          const delayLabel=`[vdl${i}]`;
+          // Trim + speed + scale
+          filterParts.push(
+            `[${fi}:v]trim=start=${ip.toFixed(4)}:duration=${sd.toFixed(4)},setpts=(PTS-STARTPTS)/${sp.toFixed(4)},scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2${vLabel}`
+          );
+          // Delay to timeline position
+          filterParts.push(
+            `${vLabel}setpts=PTS+${c.start.toFixed(4)}/TB${delayLabel}`
+          );
+          const outLabel=`[vout${i}]`;
+          filterParts.push(
+            `${prevLabel}${delayLabel}overlay=enable='between(t,${c.start.toFixed(4)},${(c.start+c.duration).toFixed(4)})'${outLabel}`
+          );
+          prevLabel=outLabel;
+        });
+        videoChain=prevLabel;
+      }
+
+      // Build audio mix
+      const audioLabels:string[]=[];
+      [...videoClips,...audioClips].forEach((c,i)=>{
+        const fi=fileInputIndex.get(urlToFile.get(c.url!)!)!;
+        const ip=c.inPoint??0;
+        const sd=srcDur(c);
+        const sp=speedRate(c);
+        const vol=((c.volume??100)/100).toFixed(3);
+        const delayMs=Math.round(c.start*1000);
+        const label=`[amix${i}]`;
+        filterParts.push(
+          `[${fi}:a]atrim=start=${ip.toFixed(4)}:duration=${sd.toFixed(4)},asetpts=(PTS-STARTPTS)/${sp.toFixed(4)},volume=${vol},adelay=${delayMs}|${delayMs}${label}`
+        );
+        audioLabels.push(label);
+      });
+
+      let audioChain:string;
+      if(audioLabels.length===0){
+        filterParts.push(`aevalsrc=0:d=${totalDuration}[aout]`);
+        audioChain="[aout]";
+      } else if(audioLabels.length===1){
+        audioChain=audioLabels[0];
+      } else {
+        filterParts.push(`${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:normalize=0[aout]`);
+        audioChain="[aout]";
+      }
+
+      setProgress(50);
+
+      const filterComplex=filterParts.join(";");
+      const ext=codec.includes("ProRes")?"mov":codec==="AV1"?"webm":"mp4";
+      const outFile=`output.${ext}`;
+      const videoCodec=codec==="H.265"?"libx265":codec==="AV1"?"libaom-av1":"libx264";
+
+      await ffmpeg.exec([
+        ...inputArgs,
+        "-filter_complex", filterComplex,
+        "-map", videoChain!,
+        "-map", audioChain,
+        "-c:v", videoCodec,
+        "-c:a", "aac",
+        "-t", totalDuration.toFixed(3),
+        "-y", outFile,
+      ]);
+
+      setProgress(95);
+      const data=await ffmpeg.readFile(outFile) as Uint8Array;
+      const blob=new Blob([data.buffer as ArrayBuffer],{type:`video/${ext}`});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url; a.download=`${projectName}-${resolution}.${ext}`;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setProgress(100);
+      setTimeout(()=>setPhase("done"),600);
+    }catch(err){
+      console.error("Export failed:",err);
+      setPhase("form");
+      alert(`Export failed: ${err instanceof Error?err.message:String(err)}\n\nTip: Make sure all clips have media loaded.`);
+    }
+  },[clips,tracks,projectName,resolution,codec,frameRate,duration]);
 
   const handleCopyLink=useCallback(async()=>{
     const vidClip=clips.find(c=>c.type==="video"&&c.url);
@@ -2767,15 +2923,7 @@ function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
     }catch{ alert("Clipboard access denied. URL: "+url); }
   },[clips]);
 
-  const startExport=()=>{
-    setPhase("progress");
-    let p=0;
-    const iv=setInterval(()=>{
-      p+=Math.random()*8+3;
-      if(p>=100){ p=100; clearInterval(iv); setProgress(100); setTimeout(()=>setPhase("done"),600); }
-      else setProgress(Math.floor(p));
-    },300);
-  };
+  const startExport=()=>{ handleDownloadAll(); };
 
   const stages=["Analyzing","Compositing","Color Grading","Audio Mix","Encoding","Finalizing"];
   const stage=stages[Math.min(Math.floor(progress/17),5)];
@@ -2995,7 +3143,9 @@ export default function ProCutEditor() {
   const duration=45;
 
   const saveProject=useCallback(()=>{
-    const data={projectName,tracks,clips};
+    // Strip ephemeral blob:// URLs — mediaKey is used to restore them on import
+    const savedClips=clips.map(c=>({...c, url: c.url?.startsWith("blob:") ? undefined : c.url}));
+    const data={projectName,tracks,clips:savedClips};
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -3016,15 +3166,30 @@ export default function ProCutEditor() {
     const file=e.target.files?.[0];
     if(!file) return;
     const reader=new FileReader();
-    reader.onload=(ev)=>{
+    reader.onload=async(ev)=>{
       try{
         const data=JSON.parse(ev.target?.result as string);
-        if(data.clips)    setClips(data.clips);
         if(data.tracks)   setTracks(data.tracks);
         if(data.projectName) setProjectName(data.projectName);
         setSelectedIds(new Set()); setPrimaryId(null);
         setPlayhead(0); setPlaying(false);
         undoStack.current=[]; redoStack.current=[];
+        // Restore blob URLs from IndexedDB for clips that have a mediaKey
+        if(data.clips){
+          const restored:Clip[]=await Promise.all((data.clips as Clip[]).map(async(c)=>{
+            if(c.mediaKey&&!c.url){
+              const url=await restoreUrl(c.mediaKey).catch(()=>null);
+              return url?{...c,url}:c;
+            }
+            return c;
+          }));
+          setClips(restored);
+          // Warn about any clips whose media couldn't be restored
+          const missing=restored.filter(c=>c.mediaKey&&!c.url&&(c.type==="video"||c.type==="audio"));
+          if(missing.length){
+            alert(`${missing.length} clip(s) could not restore their media (opened on a different device or browser). Please re-upload those files and drag them back to the timeline.`);
+          }
+        }
       }catch{ alert("Invalid project file. Please use a .procut.json file saved from ProCut."); }
     };
     reader.readAsText(file);
@@ -3172,11 +3337,16 @@ export default function ProCutEditor() {
     const files=Array.from(e.target.files||[]);
     const newOnes:Asset[]=files.map(f=>{
       const type=detectFileType(f);
-      return { name:f.name.replace(/\.[^.]+$/,""), dur:"—", type, src:"uploaded", url:URL.createObjectURL(f) };
+      const mediaKey=`media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return { name:f.name.replace(/\.[^.]+$/,""), dur:"—", type, src:"uploaded", url:URL.createObjectURL(f), mediaKey };
     });
     setAssets(p=>[...p,...newOnes]);
     setActiveTab("assets");
     e.target.value="";
+    for(let i=0;i<files.length;i++){
+      const key=newOnes[i].mediaKey;
+      if(key) storeMedia(key, files[i]).catch(()=>{});
+    }
   };
 
   return (
@@ -3262,7 +3432,7 @@ export default function ProCutEditor() {
         />
       </div>
 
-      {showExport && <ExportPanel onClose={()=>setShowExport(false)} duration={duration} clips={clips} playhead={playhead} projectName={projectName}/>}
+      {showExport && <ExportPanel onClose={()=>setShowExport(false)} duration={duration} clips={clips} tracks={tracks} playhead={playhead} projectName={projectName}/>}
 
       {showSettings && (
         <div style={{
