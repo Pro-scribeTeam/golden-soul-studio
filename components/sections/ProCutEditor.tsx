@@ -11,7 +11,7 @@ import {
   SkipBack, SkipForward, Square, Volume2, Eye, EyeOff,
   Lock, Unlock, X, Search, ChevronDown, ChevronRight,
   AlertTriangle, Check, Loader2, Film, Music2, Layers,
-  Upload, Wand2, BarChart2, Mic, BookOpen, Star, Clock, Save, FilePlus,
+  Upload, Wand2, BarChart2, Mic, BookOpen, Star, Clock, Save, FilePlus, FolderOpen,
 } from "lucide-react";
 
 // ── Colors (spec 2.1) ──────────────────────────────────────────────────────
@@ -299,10 +299,10 @@ function HoldTBtn({ icon:Icon, onAction, title }: {
 }
 
 // ── ZONE 1: Top Bar ────────────────────────────────────────────────────────
-function TopBar({ name, setName, onExport, onSettings, onSave, onNew, onCut, onCopy, onPaste, onDelete, onUndo, onRedo, hasSelection, canPaste }: {
+function TopBar({ name, setName, onExport, onSettings, onSave, onNew, onImportProject, onCut, onCopy, onPaste, onDelete, onUndo, onRedo, hasSelection, canPaste }: {
   name:string; setName:(v:string)=>void;
   onExport:()=>void; onSettings:()=>void;
-  onSave:()=>void; onNew:()=>void;
+  onSave:()=>void; onNew:()=>void; onImportProject:()=>void;
   onCut:()=>void; onCopy:()=>void; onPaste:()=>void; onDelete:()=>void;
   onUndo:()=>void; onRedo:()=>void;
   hasSelection:boolean; canPaste:boolean;
@@ -380,6 +380,11 @@ function TopBar({ name, setName, onExport, onSettings, onSave, onNew, onCut, onC
           borderRadius:6, background:"transparent",
           border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer", fontSize:11,
         }}><FilePlus size={13}/> New</button>
+        <button onClick={onImportProject} style={{
+          display:"flex", alignItems:"center", gap:4, padding:"4px 8px",
+          borderRadius:6, background:"transparent",
+          border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer", fontSize:11,
+        }}><FolderOpen size={13}/> Import</button>
         <button onClick={onSave} style={{
           display:"flex", alignItems:"center", gap:4, padding:"4px 8px",
           borderRadius:6, background:"transparent",
@@ -2711,6 +2716,35 @@ function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
     },200);
   },[]);
 
+  const [copied,setCopied]=useState(false);
+  const [resolution,setResolution]=useState("1080p");
+  const [frameRate,setFrameRate]=useState("30");
+  const [codec,setCodec]=useState("H.264");
+  const [aspectRatio,setAspectRatio]=useState("16:9");
+
+  const handleDownloadAll=useCallback(()=>{
+    const mediaClips=clips.filter(c=>c.url&&(c.type==="video"||c.type==="audio"));
+    if(!mediaClips.length){alert("No media clips on the timeline to download.");return;}
+    const ext=codec.includes("ProRes")?"mov":codec==="AV1"?"webm":"mp4";
+    mediaClips.forEach((clip,i)=>{
+      setTimeout(()=>{
+        const a=document.createElement("a");
+        a.href=clip.url!;
+        a.download=`${projectName}-${resolution}-${codec.replace(/\s/g,"-")}.${ext}`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      },i*500);
+    });
+  },[clips,projectName,resolution,codec]);
+
+  const handleCopyLink=useCallback(async()=>{
+    const vidClip=clips.find(c=>c.type==="video"&&c.url);
+    const url=vidClip?.url??window.location.href;
+    try{
+      await navigator.clipboard.writeText(url);
+      setCopied(true); setTimeout(()=>setCopied(false),2500);
+    }catch{ alert("Clipboard access denied. URL: "+url); }
+  },[clips]);
+
   const startExport=()=>{
     setPhase("progress");
     let p=0;
@@ -2779,15 +2813,15 @@ function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
             </div>
 
             {/* Format settings */}
-            {[
-              {l:"Resolution",  opts:["1080p","4K","720p","480p","Match Source"]},
-              {l:"Frame Rate",  opts:["23.976","24","25","29.97","30","60"]},
-              {l:"Codec",       opts:["H.264","H.265","ProRes 422","ProRes 4444","AV1"]},
-              {l:"Aspect Ratio",opts:["16:9","9:16","1:1","4:3","2.39:1"]},
-            ].map(({l,opts})=>(
+            {([
+              {l:"Resolution",  opts:["1080p","4K","720p","480p","Match Source"], val:resolution,  set:setResolution},
+              {l:"Frame Rate",  opts:["23.976","24","25","29.97","30","60"],       val:frameRate,   set:setFrameRate},
+              {l:"Codec",       opts:["H.264","H.265","ProRes 422","ProRes 4444","AV1"], val:codec, set:setCodec},
+              {l:"Aspect Ratio",opts:["16:9","9:16","1:1","4:3","2.39:1"],         val:aspectRatio, set:setAspectRatio},
+            ] as {l:string;opts:string[];val:string;set:(v:string)=>void}[]).map(({l,opts,val,set})=>(
               <div key={l} style={{display:"flex", alignItems:"center", gap:10, marginBottom:10}}>
                 <span style={{fontSize:11, color:C.muted, width:90, flexShrink:0}}>{l}</span>
-                <select style={{
+                <select value={val} onChange={e=>set(e.target.value)} style={{
                   flex:1, background:"#0D0D0D", border:`1px solid ${C.border}`,
                   borderRadius:6, color:C.text, padding:"4px 8px", fontSize:11,
                 }}>
@@ -2857,17 +2891,24 @@ function ExportPanel({ onClose, duration, clips, playhead, projectName }: {
               </div>
               <p style={{fontSize:13, color:C.text, marginBottom:6}}>Export complete</p>
               <p style={{fontSize:10, color:C.muted, marginBottom:20}}>Your file is ready to download.</p>
-              {["Download","Copy Link","Open in Library"].map(a=>(
-                <button key={a} style={{
-                  width:"100%", marginBottom:6, padding:"8px",
-                  borderRadius:8,
-                  background: a==="Download"?C.gold:"transparent",
-                  color: a==="Download"?"#0A0A0A":C.muted,
-                  border:`1px solid ${a==="Download"?C.gold:C.border}`,
-                  cursor:"pointer", fontSize:11, fontWeight: a==="Download"?700:400,
-                }}>{a}</button>
-              ))}
-              <button onClick={()=>setPhase("form")} style={{
+              <button onClick={handleDownloadAll} style={{
+                width:"100%", marginBottom:6, padding:"8px", borderRadius:8,
+                background:C.gold, color:"#0A0A0A", border:`1px solid ${C.gold}`,
+                cursor:"pointer", fontSize:12, fontWeight:700,
+                display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+              }}><Download size={13}/> Download — {resolution} / {codec}</button>
+              <button onClick={handleCopyLink} style={{
+                width:"100%", marginBottom:6, padding:"8px", borderRadius:8,
+                background:"transparent", color:copied?C.teal:C.muted,
+                border:`1px solid ${copied?C.teal:C.border}`,
+                cursor:"pointer", fontSize:11, transition:"color 0.2s, border-color 0.2s",
+              }}>{copied?"✓ Copied to clipboard!":"Copy Link"}</button>
+              <button onClick={()=>window.open("/history","_blank")} style={{
+                width:"100%", marginBottom:6, padding:"8px", borderRadius:8,
+                background:"transparent", color:C.muted,
+                border:`1px solid ${C.border}`, cursor:"pointer", fontSize:11,
+              }}>Open in Library</button>
+              <button onClick={()=>{setPhase("form");setProgress(0);}} style={{
                 background:"none", border:"none", color:C.muted,
                 cursor:"pointer", fontSize:11, marginTop:4,
               }}>Export Another Format</button>
@@ -2926,6 +2967,7 @@ export default function ProCutEditor() {
     try{ return JSON.parse(localStorage.getItem("procut-assets")||"[]"); } catch{ return []; }
   });
   const importFileRef=useRef<HTMLInputElement>(null);
+  const importProjectRef=useRef<HTMLInputElement>(null);
   const [tracks, setTracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
@@ -2946,6 +2988,25 @@ export default function ProCutEditor() {
     setSelectedIds(new Set()); setPrimaryId(null);
     setPlayhead(0); setPlaying(false);
     undoStack.current=[]; redoStack.current=[];
+  },[]);
+
+  const handleImportProject=useCallback((e:React.ChangeEvent<HTMLInputElement>)=>{
+    const file=e.target.files?.[0];
+    if(!file) return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try{
+        const data=JSON.parse(ev.target?.result as string);
+        if(data.clips)    setClips(data.clips);
+        if(data.tracks)   setTracks(data.tracks);
+        if(data.projectName) setProjectName(data.projectName);
+        setSelectedIds(new Set()); setPrimaryId(null);
+        setPlayhead(0); setPlaying(false);
+        undoStack.current=[]; redoStack.current=[];
+      }catch{ alert("Invalid project file. Please use a .procut.json file saved from ProCut."); }
+    };
+    reader.readAsText(file);
+    e.target.value="";
   },[]);
 
   const toggleTrackProp=useCallback((id:string, prop:"muted"|"locked"|"visible")=>{
@@ -3102,6 +3163,8 @@ export default function ProCutEditor() {
       <input ref={importFileRef} type="file" multiple
         accept="video/*,audio/*,image/*,.mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.aac,.flac,.m4a"
         style={{display:"none"}} onChange={handleImportFiles}/>
+      <input ref={importProjectRef} type="file" accept=".json,.procut.json"
+        style={{display:"none"}} onChange={handleImportProject}/>
       <div style={{
         display:"grid",
         gridTemplateColumns:`72px 1fr ${previewMax?0:inspectorW}px`,
@@ -3114,7 +3177,7 @@ export default function ProCutEditor() {
           name={projectName} setName={setProjectName}
           onExport={()=>setShowExport(true)}
           onSettings={()=>setShowSettings(true)}
-          onSave={saveProject} onNew={newProject}
+          onSave={saveProject} onNew={newProject} onImportProject={()=>importProjectRef.current?.click()}
           onCut={cutClip} onCopy={copyClip} onPaste={pasteClip} onDelete={deleteClip}
           onUndo={undo} onRedo={redo}
           hasSelection={selectedIds.size>0} canPaste={clipboard.length>0}
