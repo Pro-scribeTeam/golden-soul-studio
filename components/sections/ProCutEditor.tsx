@@ -1936,10 +1936,12 @@ function StoryTab({ narrative, setNarrative, storyText, setStoryText }: {
 // ── ZONE 5: Timeline ───────────────────────────────────────────────────────
 const LABEL_W=160, TRACK_H=58, AUDIO_H=46;
 
-function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedIds, setSelectedIds, primaryId, setPrimaryId, duration, snapshot, onToggleTrack, onAddTrack, onUpdateClip, onVResizeStart }: {
+function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, setZoom, selectedIds, setSelectedIds, primaryId, setPrimaryId, duration, snapshot, onToggleTrack, onAddTrack, onUpdateClip, onVResizeStart, beatSync, setBeatSync, bpm, setBpm }: {
   tracks:Track[]; clips:Clip[]; setClips:React.Dispatch<React.SetStateAction<Clip[]>>;
   tool:Tool;
   playhead:number; setPlayhead:(t:number)=>void;
+  beatSync:boolean; setBeatSync:(v:boolean)=>void;
+  bpm:number; setBpm:(v:number)=>void;
   zoom:number; setZoom:(z:number)=>void;
   selectedIds:Set<string>; setSelectedIds:(s:Set<string>)=>void;
   primaryId:string|null; setPrimaryId:(id:string|null)=>void;
@@ -1960,6 +1962,15 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const [contextMenu,setContextMenu]=useState<{x:number;y:number;clipId:string}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
 
+  // Beat interval in seconds
+  const beatSec = 60/bpm;
+
+  // Snap value to nearest beat if beatSync active
+  const snapToBeat=(t:number)=>{
+    if(!beatSync||bpm<=0) return t;
+    return Math.round(t/beatSec)*beatSec;
+  };
+
   // Select/slide tool — move one or many clips
   useEffect(()=>{
     if(!moveDrag) return;
@@ -1968,14 +1979,16 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
       setClips(p=>p.map(c=>{
         const orig=moveDrag.origStarts[c.id];
         if(orig===undefined) return c;
-        return {...c,start:Math.max(0,Math.round((orig+delta)*10)/10)};
+        const raw=Math.max(0,orig+delta);
+        const snapped=snapToBeat(raw);
+        return {...c,start:Math.round(snapped*10)/10};
       }));
     };
     const up=()=>setMoveDrag(null);
     window.addEventListener("mousemove",move);
     window.addEventListener("mouseup",up);
     return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
-  },[moveDrag,zoom,setClips]);
+  },[moveDrag,zoom,setClips,beatSync,bpm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hand tool — pan scroll
   useEffect(()=>{
@@ -2110,9 +2123,13 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         setSelectedIds(new Set()); setPrimaryId(null);
       }
     } else if(tool==="trim"){
-      // Trim tool: edge handles do the actual drag; clicking mid-clip just selects
-      e.stopPropagation();
+      e.preventDefault();e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
+      const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
+      const relX=e.clientX-rect.left;
+      const edge=relX<rect.width/2?"left":"right";
+      snapshot();
+      setTrimDrag({clipId:clip.id,edge,startX:e.clientX,origStart:clip.start,origDuration:clip.duration});
     } else if(tool==="slide"){
       e.preventDefault();e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
@@ -2195,8 +2212,30 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
             style={{width:90, accentColor:C.gold}}/>
           <button onClick={()=>setZoom(80)} style={sBtnSty()}>Fit All</button>
         </div>
-        <button style={sBtnSty()}><Music2 size={11}/> Beat Snap</button>
-        <button style={sBtnSty()}>Snap</button>
+        <button
+          onClick={()=>setBeatSync(!beatSync)}
+          style={sBtnSty(beatSync)}
+          title={beatSync?"Beat Sync ON — clips snap to beats":"Enable Beat Sync"}
+        >
+          <Music2 size={11}/> Beat Sync
+        </button>
+        {beatSync && (
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <input
+              type="number"
+              value={bpm}
+              min={40} max={300}
+              onChange={e=>setBpm(Math.max(40,Math.min(300,Number(e.target.value)||120)))}
+              style={{
+                width:48,height:20,fontSize:10,textAlign:"center",
+                background:"#1A1A1A",border:`1px solid ${C.gold}44`,
+                borderRadius:4,color:C.gold,padding:"0 4px",
+              }}
+              title="BPM"
+            />
+            <span style={{fontSize:9,color:C.muted}}>BPM</span>
+          </div>
+        )}
       </div>
 
       {/* Tool hint bar */}
@@ -2270,6 +2309,19 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                   {i%2===0 && <span style={{fontSize:8, color:C.muted, marginLeft:2}}>{i}s</span>}
                 </div>
               ))}
+              {/* Beat markers on ruler */}
+              {beatSync && bpm>0 && Array.from({length:Math.floor(duration/beatSec)+1},(_,i)=>i).map(i=>{
+                const t=i*beatSec;
+                const isBar=i%4===0;
+                return (
+                  <div key={`beat-${i}`} style={{
+                    position:"absolute",left:t*zoom,top:0,
+                    width:1, height:isBar?16:10,
+                    background:isBar?`${C.gold}BB`:`${C.gold}44`,
+                    pointerEvents:"none",
+                  }}/>
+                );
+              })}
               {/* Playhead triangle + line on ruler */}
               <div style={{
                 position:"absolute", left:playhead*zoom,
@@ -2315,6 +2367,18 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                     outlineOffset: -1,
                     transition:"background 0.1s",
                   }}>
+                  {/* Beat guide lines in lane */}
+                  {beatSync && bpm>0 && Array.from({length:Math.floor(duration/beatSec)+1},(_,i)=>i).map(i=>{
+                    const isBar=i%4===0;
+                    return (
+                      <div key={`blane-${i}`} style={{
+                        position:"absolute",left:i*beatSec*zoom,top:0,bottom:0,
+                        width:1,
+                        background:isBar?`${C.gold}18`:`${C.gold}08`,
+                        pointerEvents:"none",
+                      }}/>
+                    );
+                  })}
                   {tc.map(clip=>{
                     const sel=selectedIds.has(clip.id);
                     const isPrimary=clip.id===primaryId;
@@ -2645,6 +2709,8 @@ export default function ProCutEditor() {
   const [inspectorW,setInspectorW]=useState(320);
   const [timelineH,setTimelineH]=useState(280);
   const [previewMax,setPreviewMax]=useState(false);
+  const [beatSync,setBeatSync]=useState(false);
+  const [bpm,setBpm]=useState(120);
   const hResizeRef=useRef<{startX:number;startW:number}|null>(null);
   const vResizeRef=useRef<{startY:number;startH:number}|null>(null);
 
@@ -2906,6 +2972,8 @@ export default function ProCutEditor() {
           onAddTrack={addTrack}
           onUpdateClip={updateClip}
           onVResizeStart={e=>{vResizeRef.current={startY:e.clientY,startH:timelineH};}}
+          beatSync={beatSync} setBeatSync={setBeatSync}
+          bpm={bpm} setBpm={setBpm}
         />
       </div>
 
