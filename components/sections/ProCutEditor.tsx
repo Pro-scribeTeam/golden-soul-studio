@@ -623,6 +623,43 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const hasGrain = activeVideoClip?.effects?.includes("Film Grain");
   const hasChromatic = activeVideoClip?.effects?.includes("Chromatic Aberr.");
 
+  // ── Transition rendering ──────────────────────────────────────────────────
+  const tClipStart  = activeVideoClip?.start ?? 0;
+  const tClipEnd    = tClipStart + (activeVideoClip?.duration ?? 0);
+  const tSinceStart = playhead - tClipStart;
+  const tBeforeEnd  = tClipEnd  - playhead;
+  const inTransName  = activeVideoClip?.transition;
+  const inTransDur   = activeVideoClip?.transitionDuration ?? 1;
+  const outTransName = activeVideoClip?.transitionEnd;
+  const outTransDur  = activeVideoClip?.transitionEndDuration ?? 1;
+  // 0→1 through IN transition (0 = playhead just entered clip, 1 = done)
+  const inProg  = inTransName  && tSinceStart >= 0 && tSinceStart < inTransDur  ? tSinceStart / inTransDur  : 1;
+  // 0→1 through OUT transition (0 = hasn't started, 1 = at clip boundary)
+  const outProg = outTransName && tBeforeEnd  >= 0 && tBeforeEnd  < outTransDur ? 1 - tBeforeEnd / outTransDur : 0;
+
+  let transVideoOpacity   = videoOpacity;
+  let transOverlayOpacity = 0;
+  let transOverlayColor   = "#000";
+  let transTransform      = "";
+  let transClipPath       = "";
+
+  if (inTransName && inProg < 1) {
+    const p = inProg;
+    if      (inTransName === "Crossfade") { transVideoOpacity = Math.min(transVideoOpacity, p); }
+    else if (inTransName === "Dip Black") { transOverlayOpacity = Math.max(transOverlayOpacity, 1 - p); transOverlayColor = "#000"; }
+    else if (inTransName === "Flash")     { transOverlayOpacity = Math.max(transOverlayOpacity, 1 - p); transOverlayColor = "#fff"; }
+    else if (inTransName === "Wipe")      { transClipPath  = `inset(0 ${((1-p)*100).toFixed(1)}% 0 0)`; }
+    else if (inTransName === "Zoom In")   { transTransform = `scale(${(1+(1-p)*0.3).toFixed(3)})`; }
+  }
+  if (outTransName && outProg > 0) {
+    const p = outProg;
+    if      (outTransName === "Crossfade") { transVideoOpacity = Math.min(transVideoOpacity, 1 - p); }
+    else if (outTransName === "Dip Black") { transOverlayOpacity = Math.max(transOverlayOpacity, p); transOverlayColor = "#000"; }
+    else if (outTransName === "Flash")     { transOverlayOpacity = Math.max(transOverlayOpacity, p); transOverlayColor = "#fff"; }
+    else if (outTransName === "Wipe")      { transClipPath  = `inset(0 ${(p*100).toFixed(1)}% 0 0)`; }
+    else if (outTransName === "Zoom In")   { transTransform = `scale(${(1+p*0.3).toFixed(3)})`; }
+  }
+
   const handleWave=(e:React.MouseEvent)=>{
     if(!wRef.current) return;
     const r=wRef.current.getBoundingClientRect();
@@ -644,10 +681,18 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
             objectFit:"contain", background:"#000",
             display: hasVideo ? "block" : "none",
             filter: videoFilter || undefined,
-            opacity: videoOpacity,
-            transition:"filter 0.3s, opacity 0.3s",
+            opacity: transVideoOpacity,
+            transform: transTransform || undefined,
+            clipPath: transClipPath || undefined,
           }}
         />
+        {/* Transition overlay (Dip Black, Flash) */}
+        {transOverlayOpacity > 0 && (
+          <div style={{
+            position:"absolute", inset:0, pointerEvents:"none",
+            background:transOverlayColor, opacity:transOverlayOpacity, zIndex:10,
+          }}/>
+        )}
         {/* Placeholder when no video clip at playhead */}
         {!hasVideo && (
           <div style={{
