@@ -30,7 +30,7 @@ const C = {
 } as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
-type Tool = "select"|"razor"|"slip"|"slide"|"import"|"audio"|"text"
+type Tool = "select"|"razor"|"trim"|"slide"|"import"|"audio"|"text"
           |"color"|"effects"|"transitions"|"motion"|"zoom"|"hand";
 type ITab = "assets"|"inspector"|"effects"|"color"|"audio"|"text"|"story";
 
@@ -395,7 +395,7 @@ function TopBar({ name, setName, onExport, onSettings, onCut, onCopy, onPaste, o
 const TOOL_HINTS: Record<Tool,string> = {
   select:      "SELECT — click to select a clip · drag to move it",
   razor:       "RAZOR — click any clip to split it at that point",
-  slip:        "SLIP — click + drag a clip to shift its source in-point",
+  trim:        "TRIM — drag the left or right edge of a clip to trim it",
   slide:       "SLIDE — drag a clip to move it on the timeline",
   import:      "IMPORT — file dialog opened · drag files onto tracks too",
   audio:       "AUDIO — adjust volume, mute, EQ & effects in the Audio tab →",
@@ -416,7 +416,7 @@ function ToolsPanel({ tool, setTool, onTab, onImport }: {
     [
       {id:"select",      icon:MousePointer2, label:"Select",       kbd:"V"},
       {id:"razor",       icon:Scissors,      label:"Razor/Split",  kbd:"B"},
-      {id:"slip",        icon:MoveHorizontal,label:"Slip",         kbd:"Y"},
+      {id:"trim",        icon:MoveHorizontal,label:"Trim",         kbd:"T"},
       {id:"slide",       icon:ArrowLeftRight,label:"Slide",        kbd:"U"},
     ],
     [
@@ -1954,26 +1954,11 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const scrollRef=useRef<HTMLDivElement>(null);
   const [dragOver,setDragOver]=useState<string|null>(null);
   const [moveDrag,setMoveDrag]=useState<{clipIds:string[];startX:number;origStarts:Record<string,number>}|null>(null);
-  const [slipDrag,setSlipDrag]=useState<{clipId:string;startX:number;origInPoint:number}|null>(null);
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
   const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number}|null>(null);
   const [playheadDrag,setPlayheadDrag]=useState(false);
   const [contextMenu,setContextMenu]=useState<{x:number;y:number;clipId:string}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
-
-  // Slip tool — drag shifts inPoint
-  useEffect(()=>{
-    if(!slipDrag) return;
-    const move=(e:MouseEvent)=>{
-      const delta=(e.clientX-slipDrag.startX)/zoom;
-      setClips(p=>p.map(c=>c.id===slipDrag.clipId
-        ?{...c,inPoint:Math.max(0,Math.round((slipDrag.origInPoint-delta)*10)/10)}:c));
-    };
-    const up=()=>setSlipDrag(null);
-    window.addEventListener("mousemove",move);
-    window.addEventListener("mouseup",up);
-    return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
-  },[slipDrag,zoom,setClips]);
 
   // Select/slide tool — move one or many clips
   useEffect(()=>{
@@ -2124,7 +2109,8 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         ]);
         setSelectedIds(new Set()); setPrimaryId(null);
       }
-    } else if(tool==="slip"){
+    } else if(tool==="trim"){
+      // Trim tool: edge handles do the actual drag; clicking mid-clip just selects
       e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
     } else if(tool==="slide"){
@@ -2173,6 +2159,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     tool==="razor"?"crosshair":
     tool==="hand"?"grab":
     tool==="select"||tool==="slide"?(moveDrag?"grabbing":"grab"):
+    tool==="trim"?"ew-resize":
     "pointer";
 
   const ticks=Array.from({length:Math.ceil(duration)+1},(_,i)=>i);
@@ -2399,13 +2386,23 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             pointerEvents:"none",
                           }} title={`Transition: ${clip.transition}`}/>
                         )}
-                        {/* Trim handles */}
+                        {/* Trim handles — always present, wider + gold when Trim tool active */}
                         <div
                           onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
-                          style={{position:"absolute",left:0,top:0,bottom:0,width:5,cursor:"w-resize"}}/>
+                          style={{
+                            position:"absolute",left:0,top:0,bottom:0,
+                            width:tool==="trim"?10:6,cursor:"w-resize",
+                            background:tool==="trim"?`${C.gold}55`:"transparent",
+                            borderRadius:"4px 0 0 4px",
+                          }}/>
                         <div
                           onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
-                          style={{position:"absolute",right:0,top:0,bottom:0,width:5,cursor:"e-resize"}}/>
+                          style={{
+                            position:"absolute",right:0,top:0,bottom:0,
+                            width:tool==="trim"?10:6,cursor:"e-resize",
+                            background:tool==="trim"?`${C.gold}55`:"transparent",
+                            borderRadius:"0 4px 4px 0",
+                          }}/>
                       </div>
                     );
                   })}
