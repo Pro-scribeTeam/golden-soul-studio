@@ -494,6 +494,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const audioRef = useRef<HTMLAudioElement>(null);
   const loadedVideoUrl = useRef<string>("");
   const loadedAudioUrl = useRef<string>("");
+  const loadingAudio   = useRef<boolean>(false); // true while waiting for loadedmetadata
 
   // Active clips at current playhead position
   const activeVideoClip = clips
@@ -559,14 +560,19 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       loadedAudioUrl.current = url;
       aud.pause();
       if(url) {
+        loadingAudio.current = true;
         aud.src = url;
         aud.addEventListener("loadedmetadata", ()=>{
-          const syncTarget = isDetached && vid && vid.readyState >= 2 ? vid.currentTime : target;
+          loadingAudio.current = false;
+          // Read vid.currentTime fresh at callback time — always use it when detached
+          const syncTarget = isDetached && vid ? vid.currentTime : target;
           aud.currentTime = syncTarget;
-          if(playing) aud.play().catch(()=>{});
+          // Use video element's paused state as source of truth instead of stale closure
+          if(vid && !vid.paused) aud.play().catch(()=>{});
         }, {once:true});
         aud.load();
       } else {
+        loadingAudio.current = false;
         aud.removeAttribute("src");
         aud.load();
       }
@@ -575,7 +581,11 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     if(!url) return;
 
     if(playing) {
-      if(aud.paused){ aud.currentTime = target; aud.play().catch(()=>{}); }
+      // Guard: if audio is still loading (awaiting loadedmetadata), don't repeatedly
+      // seek and call play() — doing so every 1/24s causes seek-chaining that
+      // prevents the audio from ever settling at the right position.
+      // The loadedmetadata callback above handles the initial sync.
+      if(aud.paused && !loadingAudio.current){ aud.currentTime = target; aud.play().catch(()=>{}); }
     } else {
       if(!aud.paused) aud.pause();
       aud.currentTime = target;
@@ -588,6 +598,18 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     if(!vid) return;
     vid.playbackRate = activeVideoClip?.speed ? activeVideoClip.speed/100 : 1;
   },[activeVideoClip?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep detached audio playback rate in sync with video so speed-changed clips don't drift
+  useEffect(()=>{
+    const aud=audioRef.current;
+    if(!aud) return;
+    const isDetachedAudio = !!(activeAudioClip?.url && activeVideoClip?.url && activeAudioClip.url === activeVideoClip.url);
+    if(isDetachedAudio) {
+      aud.playbackRate = activeVideoClip?.speed ? activeVideoClip.speed/100 : 1;
+    } else {
+      aud.playbackRate = activeAudioClip?.speed ? activeAudioClip.speed/100 : 1;
+    }
+  },[activeAudioClip?.url, activeAudioClip?.speed, activeVideoClip?.url, activeVideoClip?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply clip volume/mute to video element
   useEffect(()=>{
