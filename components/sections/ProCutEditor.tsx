@@ -2450,22 +2450,27 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             pointerEvents:"none",
                           }} title={`Transition: ${clip.transition}`}/>
                         )}
-                        {/* Trim handles — always present, wider + gold when Trim tool active */}
+                        {/* Trim handles — visual only in trim mode (pointer-events:none so handleClipInteract handles all clicks) */}
+                        {/* In select mode they are interactive (edge-trim without switching tools) */}
                         <div
-                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          onMouseDown={tool==="trim"?undefined:e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
                           style={{
                             position:"absolute",left:0,top:0,bottom:0,
-                            width:tool==="trim"?10:6,cursor:"w-resize",
+                            width:tool==="trim"?12:6,
+                            cursor:tool==="trim"?"w-resize":"w-resize",
                             background:tool==="trim"?`${C.gold}55`:"transparent",
                             borderRadius:"4px 0 0 4px",
+                            pointerEvents:tool==="trim"?"none":"auto",
                           }}/>
                         <div
-                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          onMouseDown={tool==="trim"?undefined:e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
                           style={{
                             position:"absolute",right:0,top:0,bottom:0,
-                            width:tool==="trim"?10:6,cursor:"e-resize",
+                            width:tool==="trim"?12:6,
+                            cursor:tool==="trim"?"e-resize":"e-resize",
                             background:tool==="trim"?`${C.gold}55`:"transparent",
                             borderRadius:"0 4px 4px 0",
+                            pointerEvents:tool==="trim"?"none":"auto",
                           }}/>
                       </div>
                     );
