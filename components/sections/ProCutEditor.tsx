@@ -1980,7 +1980,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
   const [dragOver,setDragOver]=useState<string|null>(null);
   const [moveDrag,setMoveDrag]=useState<{clipIds:string[];startX:number;origStarts:Record<string,number>}|null>(null);
   const [panDrag,setPanDrag]=useState<{startX:number;scrollX:number}|null>(null);
-  const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number}|null>(null);
+  const [trimDrag,setTrimDrag]=useState<{clipId:string;edge:"left"|"right";startX:number;origStart:number;origDuration:number;origInPoint:number}|null>(null);
   const [playheadDrag,setPlayheadDrag]=useState(false);
   const [contextMenu,setContextMenu]=useState<{x:number;y:number;clipId:string}|null>(null);
   const totalPx=Math.max(duration*zoom+200, 600);
@@ -2025,7 +2025,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     return()=>{window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
   },[panDrag]);
 
-  // Trim handles — resize clip from left or right edge
+  // Trim handles — resize clip from left or right edge only
   useEffect(()=>{
     if(!trimDrag) return;
     const move=(e:MouseEvent)=>{
@@ -2033,11 +2033,18 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
       setClips(p=>p.map(c=>{
         if(c.id!==trimDrag.clipId) return c;
         if(trimDrag.edge==="left"){
-          const newStart=Math.max(0, Math.round((trimDrag.origStart+delta)*10)/10);
-          const newDur=Math.max(0.2, Math.round((trimDrag.origDuration-delta)*10)/10);
-          return {...c, start:newStart, duration:newDur};
+          // Left trim: left edge moves, right edge stays fixed
+          // Clamp so start doesn't go below 0 and duration stays >= 0.2s
+          const rawDelta=Math.min(delta, trimDrag.origDuration-0.2); // can't trim more than clip length
+          const newStart=Math.max(0, Math.round((trimDrag.origStart+rawDelta)*10)/10);
+          const actualDelta=newStart-trimDrag.origStart; // actual shift after clamping
+          const newDur=Math.max(0.2, Math.round((trimDrag.origDuration-actualDelta)*10)/10);
+          const newInPoint=Math.max(0, Math.round((trimDrag.origInPoint+actualDelta)*10)/10);
+          return {...c, start:newStart, duration:newDur, inPoint:newInPoint};
         } else {
-          const newDur=Math.max(0.2, Math.round((trimDrag.origDuration+delta)*10)/10);
+          // Right trim: right edge moves, left edge + inPoint stay fixed
+          const rawDelta=Math.max(delta, 0.2-trimDrag.origDuration); // can't trim below 0.2s
+          const newDur=Math.max(0.2, Math.round((trimDrag.origDuration+rawDelta)*10)/10);
           return {...c, duration:newDur};
         }
       }));
@@ -2146,13 +2153,9 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         setSelectedIds(new Set()); setPrimaryId(null);
       }
     } else if(tool==="trim"){
+      // Only select the clip — trim drag is handled exclusively by the edge handles
       e.preventDefault();e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
-      const rect=(e.currentTarget as HTMLElement).getBoundingClientRect();
-      const relX=e.clientX-rect.left;
-      const edge=relX<rect.width/2?"left":"right";
-      snapshot();
-      setTrimDrag({clipId:clip.id,edge,startX:e.clientX,origStart:clip.start,origDuration:clip.duration});
     } else if(tool==="slide"){
       e.preventDefault();e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
@@ -2492,7 +2495,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                         )}
                         {/* Trim handles — always interactive; wider + gold in trim mode */}
                         <div
-                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          onMouseDown={e=>{e.preventDefault();e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"left",startX:e.clientX,origStart:clip.start,origDuration:clip.duration,origInPoint:clip.inPoint??0});}}
                           style={{
                             position:"absolute",left:0,top:0,bottom:0,
                             width:tool==="trim"?12:6,
@@ -2500,9 +2503,10 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             background:tool==="trim"?`${C.gold}55`:"transparent",
                             borderRadius:"4px 0 0 4px",
                             pointerEvents:"auto",
+                            zIndex:10,
                           }}/>
                         <div
-                          onMouseDown={e=>{e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration});}}
+                          onMouseDown={e=>{e.preventDefault();e.stopPropagation();snapshot();setTrimDrag({clipId:clip.id,edge:"right",startX:e.clientX,origStart:clip.start,origDuration:clip.duration,origInPoint:clip.inPoint??0});}}
                           style={{
                             position:"absolute",right:0,top:0,bottom:0,
                             width:tool==="trim"?12:6,
@@ -2510,6 +2514,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             background:tool==="trim"?`${C.gold}55`:"transparent",
                             borderRadius:"0 4px 4px 0",
                             pointerEvents:"auto",
+                            zIndex:10,
                           }}/>
                       </div>
                     );
