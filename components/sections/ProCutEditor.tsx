@@ -554,8 +554,10 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     // If this is detached audio (same URL as active video), sync from video element's position
     const vid = videoRef.current;
     const isDetached = !!(url && activeVideoClip?.url && url === activeVideoClip.url);
-    const target = isDetached && vid && vid.readyState >= 2
-      ? vid.currentTime
+    // Don't sync to vid.currentTime if video has ended — audio would immediately end too
+    const vidReady = isDetached && vid && vid.readyState >= 2 && !vid.ended;
+    const target = vidReady
+      ? vid!.currentTime
       : Math.max(0, inPoint + (playhead - clipStart));
 
     if(loadedAudioUrl.current !== url) {
@@ -566,11 +568,14 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         aud.src = url;
         aud.addEventListener("loadedmetadata", ()=>{
           loadingAudio.current = false;
-          // Read vid.currentTime fresh at callback time — always use it when detached
-          const syncTarget = isDetached && vid ? vid.currentTime : target;
+          // Re-check vid readiness at callback time (may have changed since effect ran)
+          const vidReadyNow = isDetached && vid && vid.readyState >= 2 && !vid.ended;
+          const syncTarget = vidReadyNow ? vid!.currentTime : target;
           aud.currentTime = syncTarget;
-          // Use video element's paused state as source of truth instead of stale closure
-          if(vid && !vid.paused) aud.play().catch(()=>{});
+          // Use `playing` from closure rather than vid.paused — the video element is often
+          // still in its own load/seek cycle when this callback fires, so vid.paused is
+          // unreliable (true even when the user intends playback to be running)
+          if(playing) aud.play().catch(()=>{});
         }, {once:true});
         aud.load();
       } else {
@@ -3275,7 +3280,7 @@ export default function ProCutEditor() {
       ...p.map(c=>c.id===clip.id?{...c,muted:true}:c),
       {id:`c${Date.now()+1}`,trackId:newTrackId,name:`${clipName} (Audio)`,
         start:clip.start,duration:clip.duration,type:"audio" as const,
-        src:clip.src,url:clip.url,volume:100,
+        src:clip.src,url:clip.url,mediaKey:clip.mediaKey,volume:100,
         inPoint:clip.inPoint??0,  // must match video so they stay frame-accurate
         speed:clip.speed,
       },
