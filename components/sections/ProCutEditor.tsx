@@ -274,6 +274,28 @@ function TBtn({ icon:Icon, onClick, title }: {
   );
 }
 
+// Hold-to-scroll transport button
+function HoldTBtn({ icon:Icon, onAction, title }: {
+  icon:React.ElementType; onAction:()=>void; title?:string;
+}) {
+  const ivRef=useRef<ReturnType<typeof setInterval>|null>(null);
+  const stop=()=>{ if(ivRef.current){ clearInterval(ivRef.current); ivRef.current=null; } };
+  return (
+    <button
+      title={title}
+      onClick={onAction}
+      onMouseDown={()=>{ ivRef.current=setInterval(onAction,120); }}
+      onMouseUp={stop}
+      onMouseLeave={stop}
+      style={{
+        width:26, height:26, borderRadius:5, border:"none",
+        background:"transparent", color:C.muted,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        cursor:"pointer",
+      }}><Icon size={13}/></button>
+  );
+}
+
 // ── ZONE 1: Top Bar ────────────────────────────────────────────────────────
 function TopBar({ name, setName, onExport, onSettings, onCut, onCopy, onPaste, onDelete, onUndo, onRedo, hasSelection, canPaste }: {
   name:string; setName:(v:string)=>void;
@@ -668,19 +690,19 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
           <span style={{color:C.muted}}>/ {fmtTC(duration)}</span>
         </div>
         <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:3}}>
-          <TBtn icon={SkipBack}    onClick={()=>setPlayhead(0)} title="Go to Start"/>
-          <TBtn icon={SkipBack}    onClick={()=>setPlayhead(Math.max(0,playhead-10))} title="Rewind 10s"/>
-          <TBtn icon={ChevronLeft} onClick={()=>setPlayhead(Math.max(0,playhead-1/24))} title="Step Back"/>
-          <TBtn icon={Square}      onClick={()=>{setPlaying(false);setPlayhead(0);}} title="Stop"/>
+          <TBtn icon={SkipBack}     onClick={()=>setPlayhead(0)} title="Go to Start"/>
+          <HoldTBtn icon={SkipBack} onAction={()=>setPlayhead(Math.max(0,Math.round((playhead-1)*10)/10))} title="Rewind 1s (hold to scroll)"/>
+          <TBtn icon={ChevronLeft}  onClick={()=>setPlayhead(Math.max(0,playhead-1/24))} title="Step Back 1 frame"/>
+          <TBtn icon={Square}       onClick={()=>{setPlaying(false);setPlayhead(0);}} title="Stop"/>
           <button onClick={()=>setPlaying(!playing)} style={{
             width:34, height:34, borderRadius:8, background:C.gold,
             border:"none", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer",
           }}>
             {playing ? <Pause size={15} color="#0A0A0A"/> : <Play size={15} color="#0A0A0A"/>}
           </button>
-          <TBtn icon={ChevronRight} onClick={()=>setPlayhead(Math.min(duration,playhead+1/24))} title="Step Forward"/>
-          <TBtn icon={SkipForward}  onClick={()=>setPlayhead(Math.min(duration,playhead+10))} title="Fast Forward 10s"/>
-          <TBtn icon={SkipForward}  onClick={()=>setPlayhead(duration)} title="Go to End"/>
+          <TBtn icon={ChevronRight}  onClick={()=>setPlayhead(Math.min(duration,playhead+1/24))} title="Step Forward 1 frame"/>
+          <HoldTBtn icon={SkipForward} onAction={()=>setPlayhead(Math.min(duration,Math.round((playhead+1)*10)/10))} title="Fast Forward 1s (hold to scroll)"/>
+          <TBtn icon={SkipForward}   onClick={()=>setPlayhead(duration)} title="Go to End"/>
         </div>
         <div style={{display:"flex", alignItems:"center", gap:6}}>
           <Volume2 size={12} color={C.muted}/>
@@ -2103,10 +2125,8 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
         setSelectedIds(new Set()); setPrimaryId(null);
       }
     } else if(tool==="slip"){
-      e.preventDefault();e.stopPropagation();
+      e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
-      snapshot();
-      setSlipDrag({clipId:clip.id,startX:e.clientX,origInPoint:clip.inPoint??0});
     } else if(tool==="slide"){
       e.preventDefault();e.stopPropagation();
       setSelectedIds(new Set([clip.id])); setPrimaryId(clip.id);
@@ -2153,7 +2173,6 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     tool==="razor"?"crosshair":
     tool==="hand"?"grab":
     tool==="select"||tool==="slide"?(moveDrag?"grabbing":"grab"):
-    tool==="slip"?"ew-resize":
     "pointer";
 
   const ticks=Array.from({length:Math.ceil(duration)+1},(_,i)=>i);
@@ -2743,7 +2762,10 @@ export default function ProCutEditor() {
       ...p.map(c=>c.id===clip.id?{...c,muted:true}:c),
       {id:`c${Date.now()+1}`,trackId:newTrackId,name:`${clipName} (Audio)`,
         start:clip.start,duration:clip.duration,type:"audio" as const,
-        src:clip.src,url:clip.url,volume:100},
+        src:clip.src,url:clip.url,volume:100,
+        inPoint:clip.inPoint??0,  // must match video so they stay frame-accurate
+        speed:clip.speed,
+      },
     ]);
   },[primaryId,clips,snapshot]);
 
