@@ -2842,21 +2842,18 @@ function ExportPanel({ onClose, duration, clips, tracks, playhead, projectName }
       const contentEnd=mediaClips.reduce((max,c)=>Math.max(max,c.start+c.duration),0);
       const totalDuration=Math.min(duration, contentEnd||duration);
 
-      const inputs:string[]=[];
       const filterParts:string[]=[];
       const inputArgs:string[]=[];
 
-      // Add each unique source as an input
-      const addedFiles=new Set<string>();
-      const fileInputIndex=new Map<string,number>();
+      // Each clip gets its own input index to avoid duplicate stream references
+      // when multiple clips share the same source file. File bytes are written
+      // once (deduped above) but each clip gets a separate -i entry.
+      const clipInputIndex=new Map<string,number>();
       let inputCount=0;
       for(const c of mediaClips){
         const fname=urlToFile.get(c.url!)!;
-        if(!addedFiles.has(fname)){
-          addedFiles.add(fname);
-          fileInputIndex.set(fname,inputCount++);
-          inputArgs.push("-i",fname);
-        }
+        clipInputIndex.set(c.id, inputCount++);
+        inputArgs.push("-i",fname);
       }
 
       // Build video filter chain
@@ -2873,12 +2870,11 @@ function ExportPanel({ onClose, duration, clips, tracks, playhead, projectName }
         filterParts.push(`color=c=black:s=${outW}x${outH}:r=${fps}:d=${totalDuration}[vbase]`);
         let prevLabel="[vbase]";
         videoClips.forEach((c,i)=>{
-          const fi=fileInputIndex.get(urlToFile.get(c.url!)!)!;
+          const fi=clipInputIndex.get(c.id)!;
           const ip=c.inPoint??0;
           const sd=srcDur(c);
           const sp=speedRate(c);
           const vLabel=`[vtmp${i}]`;
-          const scaledLabel=`[vsc${i}]`;
           const delayLabel=`[vdl${i}]`;
           // Trim + speed + scale
           filterParts.push(
@@ -2897,10 +2893,13 @@ function ExportPanel({ onClose, duration, clips, tracks, playhead, projectName }
         videoChain=prevLabel;
       }
 
-      // Build audio mix
+      // Build audio mix — only from explicit audio-type clips.
+      // Video clips may not have an audio stream (AI-generated clips never do),
+      // so attempting [fi:a] on them causes an FS error. Use "Detach Audio"
+      // in the inspector to include a video clip's embedded audio in the mix.
       const audioLabels:string[]=[];
-      [...videoClips,...audioClips].forEach((c,i)=>{
-        const fi=fileInputIndex.get(urlToFile.get(c.url!)!)!;
+      audioClips.forEach((c,i)=>{
+        const fi=clipInputIndex.get(c.id)!;
         const ip=c.inPoint??0;
         const sd=srcDur(c);
         const sp=speedRate(c);
