@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useLayout } from "@/components/layout/LayoutProvider";
-import { storeMedia, restoreUrl, getMedia } from "@/lib/mediaStore";
+import { storeMedia, restoreUrl } from "@/lib/mediaStore";
 import {
   ChevronLeft, Undo2, Redo2, Settings, Share2, Download,
   Scissors, MousePointer2, MoveHorizontal, ArrowLeftRight,
@@ -498,6 +498,10 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const loadedVideoUrl = useRef<string>("");
   const loadedAudioUrl = useRef<string>("");
   const loadingAudio   = useRef<boolean>(false); // true while waiting for loadedmetadata
+  // Web Audio API routing for detached audio — avoids two-element decode contention
+  const waCtxRef    = useRef<AudioContext|null>(null);
+  const waSourceRef = useRef<MediaElementAudioSourceNode|null>(null);
+  const waGainRef   = useRef<GainNode|null>(null);
 
   // Active clips at current playhead position
   const activeVideoClip = clips
@@ -546,111 +550,121 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   },[playing, playhead, activeVideoClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync audio-only clips
-  useEffect(()=>{
-    const aud = audioRef.current;
-    if(!aud) return;
-    const url = activeAudioClip?.url ?? "";
-    const clipStart = activeAudioClip?.start ?? 0;
-    const inPoint = activeAudioClip?.inPoint ?? 0;
-    // If this is detached audio (same URL as active video), sync from video element's position
-    const vid = videoRef.current;
-    const isDetached = !!(activeAudioClip?.mediaKey && activeVideoClip?.mediaKey && activeAudioClip.mediaKey === activeVideoClip.mediaKey);
-    // Don't sync to vid.currentTime if video has ended — audio would immediately end too
-    const vidReady = isDetached && vid && vid.readyState >= 2 && !vid.ended;
-    const target = vidReady
-      ? vid!.currentTime
-      : Math.max(0, inPoint + (playhead - clipStart));
+  // Detect detached audio: audio clip that came from the same source as the active video clip
+  const isDetachedAudio = !!(activeAudioClip?.mediaKey && activeVideoClip?.mediaKey && activeAudioClip.mediaKey === activeVideoClip.mediaKey);
 
-    if(loadedAudioUrl.current !== url) {
-      loadedAudioUrl.current = url;
+  // Web Audio routing for detached audio.
+  // Root cause of "slow-motion lag": loading a second HTMLMediaElement from a large MP4 blob
+  // causes decode contention — both elements compete for the same media engine resources.
+  // Fix: tap the VIDEO element's already-decoded audio output via a MediaElementSourceNode
+  // and route it through a GainNode to the speakers. No second decode pipeline needed.
+  useEffect(()=>{
+    const vid=videoRef.current;
+    if(!vid) return;
+    if(!isDetachedAudio){
+      // Tear down Web Audio routing when returning to normal
+      waSourceRef.current?.disconnect();
+      waGainRef.current?.disconnect();
+      waSourceRef.current=null;
+      waGainRef.current=null;
+      return;
+    }
+    if(!waCtxRef.current) waCtxRef.current=new AudioContext();
+    const ctx=waCtxRef.current;
+    if(ctx.state==="suspended") ctx.resume().catch(()=>{});
+    if(!waSourceRef.current){
+      try{
+        waSourceRef.current=ctx.createMediaElementSource(vid);
+        waGainRef.current=ctx.createGain();
+        waSourceRef.current.connect(waGainRef.current);
+        waGainRef.current.connect(ctx.destination);
+      }catch{ /* already created — no-op */ }
+    }
+    vid.muted=false; // unmute — audio flows through Web Audio not HTML5 output
+  },[isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update Web Audio gain when detached audio clip volume changes
+  useEffect(()=>{
+    if(!waGainRef.current||!waCtxRef.current||!isDetachedAudio) return;
+    waGainRef.current.gain.setTargetAtTime(
+      Math.min(1,(activeAudioClip?.volume??100)/100),
+      waCtxRef.current.currentTime, 0.01
+    );
+  },[activeAudioClip?.volume, isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync separate (non-detached) audio element
+  useEffect(()=>{
+    const aud=audioRef.current;
+    if(!aud) return;
+    if(isDetachedAudio){
+      // Detached audio comes from video via Web Audio — clear any previous source on aud
+      if(loadedAudioUrl.current){
+        loadedAudioUrl.current="";
+        aud.pause(); aud.removeAttribute("src"); aud.load();
+      }
+      return;
+    }
+    const url=activeAudioClip?.url??"";
+    const clipStart=activeAudioClip?.start??0;
+    const inPoint=activeAudioClip?.inPoint??0;
+    const target=Math.max(0,inPoint+(playhead-clipStart));
+
+    if(loadedAudioUrl.current!==url){
+      loadedAudioUrl.current=url;
       aud.pause();
-      if(url) {
-        loadingAudio.current = true;
-        aud.src = url;
-        aud.addEventListener("loadedmetadata", ()=>{
-          loadingAudio.current = false;
-          // Re-check vid readiness at callback time (may have changed since effect ran)
-          const vidReadyNow = isDetached && vid && vid.readyState >= 2 && !vid.ended;
-          const syncTarget = vidReadyNow ? vid!.currentTime : target;
-          aud.currentTime = syncTarget;
-          // Use `playing` from closure rather than vid.paused — the video element is often
-          // still in its own load/seek cycle when this callback fires, so vid.paused is
-          // unreliable (true even when the user intends playback to be running)
+      if(url){
+        loadingAudio.current=true;
+        aud.src=url;
+        aud.addEventListener("loadedmetadata",()=>{
+          loadingAudio.current=false;
+          aud.currentTime=target;
           if(playing) aud.play().catch(()=>{});
-        }, {once:true});
+        },{once:true});
         aud.load();
       } else {
-        loadingAudio.current = false;
-        aud.removeAttribute("src");
-        aud.load();
+        loadingAudio.current=false;
+        aud.removeAttribute("src"); aud.load();
       }
       return;
     }
     if(!url) return;
-
-    if(playing) {
-      // Guard: if audio is still loading (awaiting loadedmetadata), don't repeatedly
-      // seek and call play() — doing so every 1/24s causes seek-chaining that
-      // prevents the audio from ever settling at the right position.
-      // The loadedmetadata callback above handles the initial sync.
-      if(aud.paused && !loadingAudio.current){ aud.currentTime = target; aud.play().catch(()=>{}); }
+    if(playing){
+      if(aud.paused&&!loadingAudio.current){ aud.currentTime=target; aud.play().catch(()=>{}); }
     } else {
       if(!aud.paused) aud.pause();
-      aud.currentTime = target;
+      aud.currentTime=target;
     }
-  },[playing, playhead, activeAudioClip, activeVideoClip]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[playing,playhead,activeAudioClip,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply clip speed to video playback rate
   useEffect(()=>{
     const vid=videoRef.current;
     if(!vid) return;
-    vid.playbackRate = activeVideoClip?.speed ? activeVideoClip.speed/100 : 1;
+    vid.playbackRate=activeVideoClip?.speed?activeVideoClip.speed/100:1;
   },[activeVideoClip?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep detached audio playback rate in sync with video so speed-changed clips don't drift
+  // Audio element playback rate (non-detached only)
   useEffect(()=>{
     const aud=audioRef.current;
-    if(!aud) return;
-    const isDetachedAudio = !!(activeAudioClip?.mediaKey && activeVideoClip?.mediaKey && activeAudioClip.mediaKey === activeVideoClip.mediaKey);
-    if(isDetachedAudio) {
-      aud.playbackRate = activeVideoClip?.speed ? activeVideoClip.speed/100 : 1;
-    } else {
-      aud.playbackRate = activeAudioClip?.speed ? activeAudioClip.speed/100 : 1;
-    }
-  },[activeAudioClip?.url, activeAudioClip?.speed, activeVideoClip?.url, activeVideoClip?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
+    if(!aud||isDetachedAudio) return;
+    aud.playbackRate=activeAudioClip?.speed?activeAudioClip.speed/100:1;
+  },[activeAudioClip?.speed,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply clip volume/mute to video element
+  // Apply video clip volume/mute — when Web Audio is active, keep video unmuted
   useEffect(()=>{
     const vid=videoRef.current;
     if(!vid) return;
-    vid.volume = Math.min(1, (activeVideoClip?.volume ?? 100) / 100);
-    vid.muted = activeVideoClip?.muted ?? false;
-  },[activeVideoClip?.volume, activeVideoClip?.muted]); // eslint-disable-line react-hooks/exhaustive-deps
+    vid.volume=Math.min(1,(activeVideoClip?.volume??100)/100);
+    if(!isDetachedAudio) vid.muted=activeVideoClip?.muted??false;
+  },[activeVideoClip?.volume,activeVideoClip?.muted,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply audio clip volume/mute to audio element
+  // Apply audio clip volume/mute to separate audio element (non-detached)
   useEffect(()=>{
     const aud=audioRef.current;
-    if(!aud) return;
-    aud.volume = Math.min(1, (activeAudioClip?.volume ?? 100) / 100);
-    aud.muted = activeAudioClip?.muted ?? false;
-  },[activeAudioClip?.volume, activeAudioClip?.muted]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Keep detached audio in sync with video during playback (same source URL = detached audio)
-  useEffect(()=>{
-    if(!playing||!activeAudioClip||!activeVideoClip) return;
-    if(!activeAudioClip.mediaKey||activeAudioClip.mediaKey!==activeVideoClip.mediaKey) return;
-    let rafId:number;
-    const sync=()=>{
-      const vid=videoRef.current, aud=audioRef.current;
-      if(vid&&aud&&!vid.paused&&!aud.paused){
-        const drift=Math.abs(aud.currentTime-vid.currentTime);
-        if(drift>0.1) aud.currentTime=vid.currentTime;
-      }
-      rafId=requestAnimationFrame(sync);
-    };
-    rafId=requestAnimationFrame(sync);
-    return()=>cancelAnimationFrame(rafId);
-  },[playing,activeAudioClip?.url,activeVideoClip?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+    if(!aud||isDetachedAudio) return;
+    aud.volume=Math.min(1,(activeAudioClip?.volume??100)/100);
+    aud.muted=activeAudioClip?.muted??false;
+  },[activeAudioClip?.volume,activeAudioClip?.muted,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const videoFilter = getClipCSSFilter(activeVideoClip);
   const videoOpacity = (activeVideoClip?.opacity ?? 100) / 100;
@@ -776,7 +790,8 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
           .filter(c=>c.type==="text"&&c.start<=playhead&&c.start+c.duration>playhead)
           .map(clip=>{
             const anim=clip.textAnimation&&clip.textAnimation!=="None"?clip.textAnimation:null;
-            const animName=anim?`pcut-${anim.toLowerCase().replace(/\s+/g,"-")}`:undefined;
+            const ANIM_MAP:Record<string,string>={"Fade In":"pcut-fadeIn","Slide Up":"pcut-slideUp","Slide Down":"pcut-slideDown","Slide Left":"pcut-slideLeft","Slide Right":"pcut-slideRight","Zoom In":"pcut-zoomIn","Typewriter":"pcut-typewriter","Bounce":"pcut-bounce","Flash":"pcut-flash"};
+            const animName=anim?ANIM_MAP[anim]:undefined;
             const animDur=anim==="Flash"?"0.5s":anim==="Typewriter"?`${Math.min(clip.duration*0.8,3)}s`:"0.7s";
             const opacity=(clip.opacity??100)/100;
             return (
@@ -3329,31 +3344,22 @@ export default function ProCutEditor() {
   },[playhead]);
 
   // Detach audio from selected video clip → creates its own dedicated audio track
-  const detachAudio=useCallback(async()=>{
+  const detachAudio=useCallback(()=>{
     if(!primaryId) return;
     const clip=clips.find(c=>c.id===primaryId);
     if(!clip||clip.type!=="video"||!clip.url) return;
     snapshot();
     const newTrackId=`a${Date.now()}`;
     const clipName=clip.name.replace(" (Audio)","");
-    // Give the audio element a SEPARATE blob URL pointing to the same data.
-    // Two media elements sharing one blob URL causes browser decode contention
-    // → video plays in slow motion. A distinct URL gives each element its own
-    // independent decode pipeline.
-    let audioUrl=clip.url;
-    if(clip.mediaKey){
-      try{
-        const blob=await getMedia(clip.mediaKey);
-        if(blob) audioUrl=URL.createObjectURL(blob);
-      }catch{ /* fall back to shared URL */ }
-    }
+    // Audio is routed through the Web Audio API (tapped from the video element),
+    // so no second media element needs to load the same blob.
     setTracks(p=>[...p,{id:newTrackId,type:"audio",name:`${clipName} Audio`,muted:false,locked:false,visible:true}]);
     setClips(p=>[
       ...p.map(c=>c.id===clip.id?{...c,muted:true}:c),
       {id:`c${Date.now()+1}`,trackId:newTrackId,name:`${clipName} (Audio)`,
         start:clip.start,duration:clip.duration,type:"audio" as const,
-        src:clip.src,url:audioUrl,mediaKey:clip.mediaKey,volume:100,
-        inPoint:clip.inPoint??0,  // must match video so they stay frame-accurate
+        src:clip.src,url:clip.url,mediaKey:clip.mediaKey,volume:100,
+        inPoint:clip.inPoint??0,
         speed:clip.speed,
       },
     ]);
