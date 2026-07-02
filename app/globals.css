@@ -3,10 +3,10 @@
 @import "tailwindcss";
 
 @theme {
-  --color-gold: #C9A84C;
-  --color-gold-light: #D4B86A;
-  --color-gold-dim: #C9A84C22;
-  --color-gold-border: #C9A84C33;
+  --color-gold: #D4A820;
+  --color-gold-light: #F0D060;
+  --color-gold-dim: #D4A82022;
+  --color-gold-border: #D4A82033;
   --color-bg: #0A0A0F;
   --color-card: #111118;
   --color-ivory: #F5F0E8;
@@ -46,23 +46,23 @@ input[type="range"]::-webkit-slider-thumb {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #C9A84C;
+  background: #D4A820;
   cursor: pointer;
   border: 2px solid #0A0A0F;
-  box-shadow: 0 0 6px #C9A84C66;
+  box-shadow: 0 0 6px #D4A82066;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
-  box-shadow: 0 0 10px #C9A84C99;
+  box-shadow: 0 0 10px #D4A82099;
 }
 
 input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #C9A84C;
+  background: #D4A820;
   cursor: pointer;
   border: 2px solid #0A0A0F;
 }
@@ -81,18 +81,18 @@ input[type="range"]::-webkit-slider-runnable-track {
   background: #111118;
 }
 ::-webkit-scrollbar-thumb {
-  background: #C9A84C44;
+  background: #D4A82044;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #C9A84C88;
+  background: #D4A82088;
 }
 
 /* Select */
 select {
   background-color: #111118;
   color: #F5F0E8;
-  border: 1px solid #C9A84C33;
+  border: 1px solid #D4A82033;
   border-radius: 6px;
   padding: 8px 12px;
   font-family: "Montserrat", sans-serif;
@@ -104,7 +104,7 @@ select {
 }
 
 select:focus {
-  border-color: #C9A84C;
+  border-color: #D4A820;
 }
 
 select option {
@@ -116,7 +116,7 @@ select option {
 textarea, input[type="text"], input[type="email"], input[type="url"] {
   background-color: #111118;
   color: #F5F0E8;
-  border: 1px solid #C9A84C33;
+  border: 1px solid #D4A82033;
   border-radius: 6px;
   font-family: "Montserrat", sans-serif;
   font-size: 14px;
@@ -125,7 +125,7 @@ textarea, input[type="text"], input[type="email"], input[type="url"] {
 }
 
 textarea:focus, input[type="text"]:focus, input[type="email"]:focus {
-  border-color: #C9A84C;
+  border-color: #D4A820;
 }
 
 /* Animations */
@@ -163,7 +163,7 @@ textarea:focus, input[type="text"]:focus, input[type="email"]:focus {
 
 /* Button active pulse */
 @keyframes btn-pulse {
-  0% { box-shadow: 0 0 0 0 #C9A84C66; }
+  0% { box-shadow: 0 0 0 0 #D4A82066; }
   70% { box-shadow: 0 0 0 8px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
@@ -174,11 +174,75 @@ textarea:focus, input[type="text"]:focus, input[type="email"]:focus {
 
 /* Gold progress bar */
 .progress-gold {
-  background: linear-gradient(90deg, #C9A84C, #D4B86A);
+  background: linear-gradient(90deg, #D4A820, #D4B86A);
   height: 3px;
   border-radius: 2px;
   transition: width 0.3s ease;
 }
+
+/* Gold shimmer (applied to key brand elements) */
+@keyframes gold-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.gold-shimmer {
+  background: linear-gradient(90deg, #D4A820 0%, #F0D060 40%, #D4A820 60%, #A07800 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gold-shimmer 3s linear infinite;
+}
+
+/* Gold dust sparkle particles */
+@keyframes gold-dust-1 {
+  0%   { transform: translate(0,0)     scale(1);   opacity: 0.9; }
+  50%  { transform: translate(8px,-12px) scale(1.3); opacity: 0.6; }
+  100% { transform: translate(4px,-24px) scale(0.4); opacity: 0; }
+}
+@keyframes gold-dust-2 {
+  0%   { transform: translate(0,0)      scale(0.8); opacity: 0.7; }
+  50%  { transform: translate(-6px,-10px) scale(1.1); opacity: 0.5; }
+  100% { transform: translate(-10px,-22px) scale(0.3); opacity: 0; }
+}
+@keyframes gold-dust-3 {
+  0%   { transform: translate(0,0)    scale(1.1); opacity: 0.8; }
+  50%  { transform: translate(10px,-8px) scale(0.9); opacity: 0.5; }
+  100% { transform: translate(6px,-20px) scale(0.2); opacity: 0; }
+}
+.gold-dust-container { position: relative; display: inline-block; }
+.gold-dust-container::before,
+.gold-dust-container::after {
+  content: "✦";
+  position: absolute;
+  color: #F0D060;
+  font-size: 7px;
+  pointer-events: none;
+}
+.gold-dust-container::before {
+  top: -4px; right: -6px;
+  animation: gold-dust-1 2.4s ease-out infinite;
+}
+.gold-dust-container::after {
+  top: 2px; left: -6px;
+  animation: gold-dust-2 3.1s ease-out infinite 0.8s;
+}
+
+/* Text clip animations (ProCut editor previews) */
+@keyframes pcut-fadeIn    { from { opacity: 0 }                              to { opacity: 1 } }
+@keyframes pcut-slideUp   { from { opacity: 0; transform: translateY(40px) } to { opacity: 1; transform: none } }
+@keyframes pcut-slideDown { from { opacity: 0; transform: translateY(-40px)} to { opacity: 1; transform: none } }
+@keyframes pcut-slideLeft { from { opacity: 0; transform: translateX(40px) } to { opacity: 1; transform: none } }
+@keyframes pcut-slideRight{ from { opacity: 0; transform: translateX(-40px)} to { opacity: 1; transform: none } }
+@keyframes pcut-zoomIn    { from { opacity: 0; transform: scale(0.5) }       to { opacity: 1; transform: scale(1) } }
+@keyframes pcut-bounce    {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.12); }
+  80%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+@keyframes pcut-flash     { 0%,49%{ opacity: 1 } 50%,100%{ opacity: 0 } }
+@keyframes pcut-typewriter{ from { clip-path: inset(0 100% 0 0) } to { clip-path: inset(0 0% 0 0) } }
 
 /* Heading font utility */
 .font-heading {

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useLayout } from "@/components/layout/LayoutProvider";
-import { storeMedia, restoreUrl } from "@/lib/mediaStore";
+import { storeMedia, restoreUrl, getMedia } from "@/lib/mediaStore";
 import {
   ChevronLeft, Undo2, Redo2, Settings, Share2, Download,
   Scissors, MousePointer2, MoveHorizontal, ArrowLeftRight,
@@ -20,7 +20,7 @@ const C = {
   bg:      "#0A0A0A",
   panel:   "#111111",
   border:  "#2A2A2A",
-  gold:    "#C9A84C",
+  gold:    "#D4A820",
   text:    "#F5F5F5",
   muted:   "#888888",
   red:     "#E05555",
@@ -554,7 +554,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     const inPoint = activeAudioClip?.inPoint ?? 0;
     // If this is detached audio (same URL as active video), sync from video element's position
     const vid = videoRef.current;
-    const isDetached = !!(url && activeVideoClip?.url && url === activeVideoClip.url);
+    const isDetached = !!(activeAudioClip?.mediaKey && activeVideoClip?.mediaKey && activeAudioClip.mediaKey === activeVideoClip.mediaKey);
     // Don't sync to vid.currentTime if video has ended — audio would immediately end too
     const vidReady = isDetached && vid && vid.readyState >= 2 && !vid.ended;
     const target = vidReady
@@ -611,7 +611,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   useEffect(()=>{
     const aud=audioRef.current;
     if(!aud) return;
-    const isDetachedAudio = !!(activeAudioClip?.url && activeVideoClip?.url && activeAudioClip.url === activeVideoClip.url);
+    const isDetachedAudio = !!(activeAudioClip?.mediaKey && activeVideoClip?.mediaKey && activeAudioClip.mediaKey === activeVideoClip.mediaKey);
     if(isDetachedAudio) {
       aud.playbackRate = activeVideoClip?.speed ? activeVideoClip.speed/100 : 1;
     } else {
@@ -638,7 +638,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   // Keep detached audio in sync with video during playback (same source URL = detached audio)
   useEffect(()=>{
     if(!playing||!activeAudioClip||!activeVideoClip) return;
-    if(activeAudioClip.url!==activeVideoClip.url) return;
+    if(!activeAudioClip.mediaKey||activeAudioClip.mediaKey!==activeVideoClip.mediaKey) return;
     let rafId:number;
     const sync=()=>{
       const vid=videoRef.current, aud=audioRef.current;
@@ -774,28 +774,42 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         {/* Text clip overlays */}
         {clips
           .filter(c=>c.type==="text"&&c.start<=playhead&&c.start+c.duration>playhead)
-          .map(clip=>(
-            <div key={clip.id} style={{
-              position:"absolute",inset:0,pointerEvents:"none",zIndex:20,
-              display:"flex",
-              alignItems:clip.textPosition==="top"?"flex-start":clip.textPosition==="bottom"?"flex-end":"center",
-              justifyContent:clip.textAlign==="left"?"flex-start":clip.textAlign==="right"?"flex-end":"center",
-              padding:"6%",
-            }}>
-              <span style={{
-                fontSize:clip.textSize??48,
-                fontFamily:clip.textFont&&clip.textFont!=="Default"?clip.textFont:undefined,
-                color:clip.textColor??"#FFFFFF",
-                textAlign:clip.textAlign??"center",
-                textShadow:"0 2px 12px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.6)",
-                whiteSpace:"pre-wrap",
-                maxWidth:"90%",
-                lineHeight:1.25,
+          .map(clip=>{
+            const anim=clip.textAnimation&&clip.textAnimation!=="None"?clip.textAnimation:null;
+            const animName=anim?`pcut-${anim.toLowerCase().replace(/\s+/g,"-")}`:undefined;
+            const animDur=anim==="Flash"?"0.5s":anim==="Typewriter"?`${Math.min(clip.duration*0.8,3)}s`:"0.7s";
+            const opacity=(clip.opacity??100)/100;
+            return (
+              <div key={`${clip.id}-${clip.start}`} style={{
+                position:"absolute",inset:0,pointerEvents:"none",zIndex:20,
+                display:"flex",
+                alignItems:clip.textPosition==="top"?"flex-start":clip.textPosition==="bottom"?"flex-end":"center",
+                justifyContent:clip.textAlign==="left"?"flex-start":clip.textAlign==="right"?"flex-end":"center",
+                padding:"6%",
+                opacity,
               }}>
-                {clip.textContent||clip.name}
-              </span>
-            </div>
-          ))
+                <span style={{
+                  fontSize:clip.textSize??48,
+                  fontFamily:clip.textFont&&clip.textFont!=="Default"?clip.textFont:undefined,
+                  color:clip.textColor??"#FFFFFF",
+                  textAlign:clip.textAlign??"center",
+                  textShadow:"0 2px 12px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.6)",
+                  whiteSpace:"pre-wrap",
+                  maxWidth:"90%",
+                  lineHeight:1.25,
+                  ...(animName&&{
+                    animationName:animName,
+                    animationDuration:animDur,
+                    animationTimingFunction:anim==="Bounce"?"cubic-bezier(0.36,0.07,0.19,0.97)":"ease-out",
+                    animationFillMode:anim==="Flash"?"none":"both",
+                    animationIterationCount:anim==="Flash"?"infinite":"1",
+                  }),
+                }}>
+                  {clip.textContent||clip.name}
+                </span>
+              </div>
+            );
+          })
         }
         {/* Narrative badge */}
         <div style={{
@@ -1911,6 +1925,15 @@ function TextTab({ onAddClip, selectedClip, onUpdateClip, snapshot }: {
             style={{...inputStyle,marginBottom:10,appearance:"auto",cursor:"pointer"}}>
             {TEXT_ANIMATIONS.map(a=><option key={a} value={a} style={{background:"#1A1A1A"}}>{a}</option>)}
           </select>
+
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <p style={labelStyle}>OPACITY</p>
+            <span style={{fontSize:10,color:C.text}}>{textClip.opacity??100}%</span>
+          </div>
+          <input type="range" min={0} max={100} step={1}
+            value={textClip.opacity??100}
+            onChange={e=>upd("opacity",Number(e.target.value))}
+            style={{width:"100%",accentColor:C.gold,marginBottom:10}}/>
 
           <div style={{padding:"6px 8px",background:"#0D1A0D",borderRadius:6,border:`1px solid ${C.teal}33`}}>
             <p style={{fontSize:9,color:C.teal,margin:0}}>Changes apply live to the preview</p>
@@ -3306,19 +3329,30 @@ export default function ProCutEditor() {
   },[playhead]);
 
   // Detach audio from selected video clip → creates its own dedicated audio track
-  const detachAudio=useCallback(()=>{
+  const detachAudio=useCallback(async()=>{
     if(!primaryId) return;
     const clip=clips.find(c=>c.id===primaryId);
     if(!clip||clip.type!=="video"||!clip.url) return;
     snapshot();
     const newTrackId=`a${Date.now()}`;
     const clipName=clip.name.replace(" (Audio)","");
+    // Give the audio element a SEPARATE blob URL pointing to the same data.
+    // Two media elements sharing one blob URL causes browser decode contention
+    // → video plays in slow motion. A distinct URL gives each element its own
+    // independent decode pipeline.
+    let audioUrl=clip.url;
+    if(clip.mediaKey){
+      try{
+        const blob=await getMedia(clip.mediaKey);
+        if(blob) audioUrl=URL.createObjectURL(blob);
+      }catch{ /* fall back to shared URL */ }
+    }
     setTracks(p=>[...p,{id:newTrackId,type:"audio",name:`${clipName} Audio`,muted:false,locked:false,visible:true}]);
     setClips(p=>[
       ...p.map(c=>c.id===clip.id?{...c,muted:true}:c),
       {id:`c${Date.now()+1}`,trackId:newTrackId,name:`${clipName} (Audio)`,
         start:clip.start,duration:clip.duration,type:"audio" as const,
-        src:clip.src,url:clip.url,mediaKey:clip.mediaKey,volume:100,
+        src:clip.src,url:audioUrl,mediaKey:clip.mediaKey,volume:100,
         inPoint:clip.inPoint??0,  // must match video so they stay frame-accurate
         speed:clip.speed,
       },
