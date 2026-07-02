@@ -178,6 +178,7 @@ function fmtTC(s: number) {
 }
 function clipBg(c: Clip) {
   if (c.type==="audio") return C.dTeal;
+  if (c.type==="text")  return "#1A1500";
   if (c.src==="drive") return C.dPurp;
   if (c.src==="uploaded") return C.dBlue;
   return C.dTeal;
@@ -770,6 +771,32 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
           <div style={{position:"absolute",inset:0,pointerEvents:"none",
             boxShadow:"inset 3px 0 0 rgba(255,0,0,0.18), inset -3px 0 0 rgba(0,0,255,0.18)"}}/>
         )}
+        {/* Text clip overlays */}
+        {clips
+          .filter(c=>c.type==="text"&&c.start<=playhead&&c.start+c.duration>playhead)
+          .map(clip=>(
+            <div key={clip.id} style={{
+              position:"absolute",inset:0,pointerEvents:"none",zIndex:20,
+              display:"flex",
+              alignItems:clip.textPosition==="top"?"flex-start":clip.textPosition==="bottom"?"flex-end":"center",
+              justifyContent:clip.textAlign==="left"?"flex-start":clip.textAlign==="right"?"flex-end":"center",
+              padding:"6%",
+            }}>
+              <span style={{
+                fontSize:clip.textSize??48,
+                fontFamily:clip.textFont&&clip.textFont!=="Default"?clip.textFont:undefined,
+                color:clip.textColor??"#FFFFFF",
+                textAlign:clip.textAlign??"center",
+                textShadow:"0 2px 12px rgba(0,0,0,0.9),0 0 4px rgba(0,0,0,0.6)",
+                whiteSpace:"pre-wrap",
+                maxWidth:"90%",
+                lineHeight:1.25,
+              }}>
+                {clip.textContent||clip.name}
+              </span>
+            </div>
+          ))
+        }
         {/* Narrative badge */}
         <div style={{
           position:"absolute", top:10, left:10,
@@ -1265,6 +1292,13 @@ function InspectorTab({ clip, onUpdateClip, onDetachAudio, playhead }: {
       }}>
         <Move size={11}/> Snap to Playhead ({fmtTC(playhead)})
       </button>
+      <div style={{marginTop:10}}>
+        <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>DURATION (s)</p>
+        <input type="number" min={0.1} step={0.1} value={clip.duration}
+          onChange={e=>onUpdateClip(clip.id,{duration:Math.max(0.1,Number(e.target.value))})}
+          style={{width:"100%", background:"#0D0D0D", border:`1px solid ${C.border}`,
+            borderRadius:6, color:C.text, padding:"4px 8px", fontSize:11, outline:"none"}}/>
+      </div>
       <div style={{marginTop:10}}>
         <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>SPEED (%)</p>
         <input type="number" min={10} max={400} value={speed}
@@ -1887,10 +1921,15 @@ function TextTab({ onAddClip, selectedClip, onUpdateClip, snapshot }: {
           <p style={{fontSize:10, color:C.muted, margin:"0 0 6px 0"}}>ADD TEXT LAYER</p>
           <p style={{fontSize:9, color:C.muted, margin:"0 0 10px 0", opacity:0.7}}>Placed at the current playhead · click to select + edit</p>
           {items.map(item=>(
-            <button key={item.label} onClick={()=>addItem(item.label)} style={{
+            <button key={item.label} draggable
+              onDragStart={e=>{
+                e.dataTransfer.setData("application/procut-asset",JSON.stringify({name:item.label,type:"text",src:"uploaded"}));
+                e.dataTransfer.effectAllowed="copy";
+              }}
+              onClick={()=>addItem(item.label)} style={{
               width:"100%", marginBottom:6, padding:"8px 10px",
               background:"#0D0D0D", border:`1px solid ${C.border}`,
-              borderRadius:8, cursor:"pointer", textAlign:"left",
+              borderRadius:8, cursor:"grab", textAlign:"left",
             }}
               onMouseEnter={e=>(e.currentTarget.style.borderColor=`${C.gold}55`)}
               onMouseLeave={e=>(e.currentTarget.style.borderColor=C.border)}
@@ -2208,14 +2247,14 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
     try{asset=JSON.parse(raw);}catch{return;}
     const rect=e.currentTarget.getBoundingClientRect();
     const secs=Math.max(0,Math.round(((e.clientX-rect.left)/zoom)*10)/10);
-    const clipType:Clip["type"]=asset.type==="audio"?"audio":"video";
+    const clipType:Clip["type"]=asset.type==="audio"?"audio":asset.type==="text"?"text":"video";
     const clipId=`c${Date.now()}`;
     snapshot();
     setSelectedIds(new Set([clipId]));
     setPrimaryId(clipId);
     setClips(p=>[...p,{
       id:clipId,trackId:track.id,name:asset.name,
-      start:secs,duration:asset.type==="audio"?30:10,
+      start:secs,duration:asset.type==="audio"?30:asset.type==="text"?5:10,
       type:clipType,src:asset.src as Clip["src"],url:asset.url,mediaKey:asset.mediaKey,
     }]);
     // Read actual media duration and update clip
