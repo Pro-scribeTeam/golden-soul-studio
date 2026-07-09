@@ -8,6 +8,7 @@ import { GoldDropdown } from "@/components/ui/GoldDropdown";
 import { LoadingRing } from "@/components/ui/LoadingRing";
 import { OutputCard } from "@/components/ui/OutputCard";
 import { Upload, X, Link, Video, Plus } from "lucide-react";
+import { uploadFileDirect } from "@/lib/uploadDirect";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -362,14 +363,8 @@ export default function ImageGeneration() {
     setImagePreview(localPreview);
     setImageUrl("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const text = await res.text();
-      let data: { url?: string; error?: string };
-      try { data = JSON.parse(text); } catch { throw new Error(res.ok ? "Upload failed" : `Upload error (${res.status}): ${text.slice(0, 120)}`); }
-      if (data.error) throw new Error(data.error);
-      setImageUrl(data.url ?? "");
+      const url = await uploadFileDirect(file);
+      setImageUrl(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
       setImagePreview("");
@@ -388,13 +383,9 @@ export default function ImageGeneration() {
     const index = additionalImages.length;
     setAdditionalImages((prev) => [...prev, { url: "", preview, uploading: true }]);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      const url = await uploadFileDirect(file);
       setAdditionalImages((prev) =>
-        prev.map((img, i) => i === index ? { ...img, url: data.url ?? "", uploading: false } : img)
+        prev.map((img, i) => i === index ? { ...img, url, uploading: false } : img)
       );
     } catch {
       setAdditionalImages((prev) => prev.filter((_, i) => i !== index));

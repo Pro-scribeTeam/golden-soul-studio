@@ -7,6 +7,7 @@ import { GoldDropdown } from "@/components/ui/GoldDropdown";
 import { LoadingRing } from "@/components/ui/LoadingRing";
 import { OutputCard } from "@/components/ui/OutputCard";
 import { Upload, X, CheckCircle, Link } from "lucide-react";
+import { uploadFileDirect } from "@/lib/uploadDirect";
 
 // ─── Model lists ──────────────────────────────────────────────────────────────
 
@@ -264,14 +265,8 @@ export default function VideoGeneration() {
     setImagePreview(URL.createObjectURL(file));
     setImageUrl("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const text = await res.text();
-      let data: { url?: string; error?: string };
-      try { data = JSON.parse(text); } catch { throw new Error(res.ok ? "Upload failed" : `Upload error (${res.status}): ${text.slice(0, 120)}`); }
-      if (data.error) throw new Error(data.error);
-      setImageUrl(data.url!);
+      const url = await uploadFileDirect(file);
+      setImageUrl(url);
       setModel("kling-i2v");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
@@ -292,14 +287,8 @@ export default function VideoGeneration() {
     setEndImagePreview(URL.createObjectURL(file));
     setEndImageUrl("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const text = await res.text();
-      let data: { url?: string; error?: string };
-      try { data = JSON.parse(text); } catch { throw new Error(`Upload error (${res.status}): ${text.slice(0, 120)}`); }
-      if (data.error) throw new Error(data.error);
-      setEndImageUrl(data.url!);
+      const url = await uploadFileDirect(file);
+      setEndImageUrl(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "End frame upload failed");
       setEndImagePreview("");
