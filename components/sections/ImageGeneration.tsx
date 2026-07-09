@@ -67,6 +67,14 @@ const LIGHTING_PRESETS = [
 
 const RESOLUTIONS = ["512px", "1024px", "2048px", "4K"];
 
+const ASPECT_RATIOS = [
+  { value: "1:1",  label: "1:1",  desc: "Square",    w: 1,  h: 1  },
+  { value: "4:3",  label: "4:3",  desc: "Standard",  w: 4,  h: 3  },
+  { value: "16:9", label: "16:9", desc: "Wide",       w: 16, h: 9  },
+  { value: "3:4",  label: "3:4",  desc: "Portrait",  w: 3,  h: 4  },
+  { value: "9:16", label: "9:16", desc: "Story",      w: 9,  h: 16 },
+];
+
 const JEFF_PRESET =
   "Black male R&B artist in his late 30s, wearing a perfectly tailored dark charcoal suit with pocket square and classic black fedora tilted slightly forward, soulful and dignified expression, warm amber golden hour lighting, cinematic 35mm film quality, authentic and genuine emotion";
 
@@ -383,6 +391,7 @@ export default function ImageGeneration() {
   const [styleIntensity, setStyleIntensity] = useState(50);
   const [lighting, setLighting]         = useState("golden-hour-natural");
   const [resolution, setResolution]     = useState("1024px");
+  const [aspectRatio, setAspectRatio]   = useState("1:1");
   const [variations, setVariations]     = useState(1);
 
   // Edit state
@@ -505,7 +514,7 @@ export default function ImageGeneration() {
     if (!prompt.trim()) { setError("Please enter a prompt."); return; }
     const count = Math.min(4, Math.max(1, variations));
     if (count === 1) {
-      run("/api/wavespeed/image", { model, prompt, styleIntensity, lighting, resolution, referenceImageUrl: refImageUrl || undefined }, "image");
+      run("/api/wavespeed/image", { model, prompt, styleIntensity, lighting, resolution, aspectRatio, referenceImageUrl: refImageUrl || undefined }, "image");
       return;
     }
     // Multiple variations — fire N requests in parallel, poll all simultaneously
@@ -514,7 +523,7 @@ export default function ImageGeneration() {
     setResults([]);
     setProgress(10);
     try {
-      const body = { model, prompt, styleIntensity, lighting, resolution, referenceImageUrl: refImageUrl || undefined };
+      const body = { model, prompt, styleIntensity, lighting, resolution, aspectRatio, referenceImageUrl: refImageUrl || undefined };
       const submissions = await Promise.all(
         Array.from({ length: count }, () =>
           fetch("/api/wavespeed/image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json())
@@ -547,7 +556,7 @@ export default function ImageGeneration() {
     if (!imageUrl) { setError("Please upload or paste an image URL."); return; }
     if (!editPrompt.trim()) { setError("Please describe the edit."); return; }
     const additionalImageUrls = additionalImages.filter((img) => img.url).map((img) => img.url);
-    run("/api/wavespeed/edit", { imageUrl, prompt: editPrompt, model: editModel, strength: editStrength, additionalImageUrls }, "edit");
+    run("/api/wavespeed/edit", { imageUrl, prompt: editPrompt, model: editModel, strength: editStrength, additionalImageUrls, aspectRatio }, "edit");
   };
 
   const upscaleImage = () => {
@@ -689,6 +698,30 @@ export default function ImageGeneration() {
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Aspect Ratio</label>
+              <div className="flex gap-2">
+                {ASPECT_RATIOS.map((ar) => (
+                  <button
+                    key={ar.value}
+                    onClick={() => setAspectRatio(ar.value)}
+                    className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg transition-all ${
+                      aspectRatio === ar.value
+                        ? "bg-[#C9A84C] text-[#0A0A0F]"
+                        : "bg-[#111118] border border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
+                    }`}
+                  >
+                    <div
+                      className={`border-2 rounded-sm flex-shrink-0 ${aspectRatio === ar.value ? "border-[#0A0A0F66]" : "border-[#C9A84C66]"}`}
+                      style={{ width: `${Math.round(20 * ar.w / Math.max(ar.w, ar.h))}px`, height: `${Math.round(20 * ar.h / Math.max(ar.w, ar.h))}px` }}
+                    />
+                    <span className="text-[10px] font-body font-semibold leading-none">{ar.label}</span>
+                    <span className={`text-[9px] font-body leading-none ${aspectRatio === ar.value ? "text-[#0A0A0F88]" : "text-[#F5F0E844]"}`}>{ar.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <GoldSlider label="Variations" min={1} max={4} value={variations} defaultValue={1} onChange={setVariations} />
 
             <GoldButton size="lg" onClick={generate} loading={loading} disabled={loading} className="w-full">
@@ -750,6 +783,30 @@ export default function ImageGeneration() {
 
             <GoldSlider label="Edit Strength" min={10} max={100} value={editStrength} defaultValue={80} onChange={setEditStrength} formatValue={(v) => `${v}%`} />
             <p className="text-[10px] text-[#F5F0E844] font-body -mt-4">Higher = stronger edit, lower = stays closer to original</p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Aspect Ratio</label>
+              <div className="flex gap-2">
+                {ASPECT_RATIOS.map((ar) => (
+                  <button
+                    key={ar.value}
+                    onClick={() => setAspectRatio(ar.value)}
+                    className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-lg transition-all ${
+                      aspectRatio === ar.value
+                        ? "bg-[#C9A84C] text-[#0A0A0F]"
+                        : "bg-[#111118] border border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
+                    }`}
+                  >
+                    <div
+                      className={`border-2 rounded-sm flex-shrink-0 ${aspectRatio === ar.value ? "border-[#0A0A0F66]" : "border-[#C9A84C66]"}`}
+                      style={{ width: `${Math.round(20 * ar.w / Math.max(ar.w, ar.h))}px`, height: `${Math.round(20 * ar.h / Math.max(ar.w, ar.h))}px` }}
+                    />
+                    <span className="text-[10px] font-body font-semibold leading-none">{ar.label}</span>
+                    <span className={`text-[9px] font-body leading-none ${aspectRatio === ar.value ? "text-[#0A0A0F88]" : "text-[#F5F0E844]"}`}>{ar.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <GoldButton size="lg" onClick={editImage} loading={loading} disabled={loading || uploadLoading} className="w-full">
               {uploadLoading ? "Uploading..." : loading ? "Editing..." : "Edit Image"}

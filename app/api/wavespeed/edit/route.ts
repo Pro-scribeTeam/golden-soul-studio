@@ -15,7 +15,7 @@ const NANO_BANANA_MODELS = new Set(["nano-banana-pro", "nano-banana-2"]);
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageUrl, prompt, model, strength, additionalImageUrls } = await req.json();
+    const { imageUrl, prompt, model, strength, additionalImageUrls, aspectRatio } = await req.json();
     if (!imageUrl || !prompt) {
       return NextResponse.json({ error: "imageUrl and prompt are required" }, { status: 400 });
     }
@@ -24,6 +24,15 @@ export async function POST(req: NextRequest) {
     const extraUrls: string[] = Array.isArray(additionalImageUrls) ? additionalImageUrls.filter(Boolean) : [];
 
     let input: Record<string, unknown>;
+    const ASPECT_DIMS: Record<string, [number, number]> = {
+      "1:1": [1, 1], "4:3": [4, 3], "16:9": [16, 9], "3:4": [3, 4], "9:16": [9, 16],
+    };
+    const [aw, ah] = ASPECT_DIMS[aspectRatio as string] || [1, 1];
+    const base = 1024;
+    const scale = base / Math.max(aw, ah);
+    const outWidth  = Math.round(scale * aw / 8) * 8;
+    const outHeight = Math.round(scale * ah / 8) * 8;
+
     if (NANO_BANANA_MODELS.has(model)) {
       // Nano Banana: images array — source image first, then additional references
       input = {
@@ -41,6 +50,8 @@ export async function POST(req: NextRequest) {
         image: imageUrl,
         prompt: prompt + referenceNote,
         guidance_scale: Math.round(guidanceScale * 10) / 10,
+        width: outWidth,
+        height: outHeight,
       };
     }
 

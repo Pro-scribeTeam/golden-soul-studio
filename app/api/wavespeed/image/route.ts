@@ -14,22 +14,40 @@ const MODEL_MAP: Record<string, string> = {
   "stability/stable-diffusion-3-5":  "wavespeed-ai/flux-dev",
 };
 
-const SIZE_MAP: Record<string, string> = {
-  "512px":  "512*512",
-  "1024px": "1024*1024",
-  "2048px": "2048*2048",
-  "4K":     "2048*2048", // WaveSpeed max is 2048
+const BASE_PX: Record<string, number> = {
+  "512px":  512,
+  "1024px": 1024,
+  "2048px": 2048,
+  "4K":     2048,
 };
+
+const ASPECT_DIMS: Record<string, [number, number]> = {
+  "1:1":  [1, 1],
+  "4:3":  [4, 3],
+  "16:9": [16, 9],
+  "3:4":  [3, 4],
+  "9:16": [9, 16],
+};
+
+function computeSize(resolution: string, aspectRatio: string): string {
+  const base = BASE_PX[resolution] || 1024;
+  const [w, h] = ASPECT_DIMS[aspectRatio] || [1, 1];
+  const scale = base / Math.max(w, h);
+  // Round to nearest multiple of 8 (required by most diffusion models)
+  const width  = Math.round(scale * w / 8) * 8;
+  const height = Math.round(scale * h / 8) * 8;
+  return `${width}*${height}`;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { model, prompt, resolution, styleIntensity, referenceImageUrl } = await req.json();
+    const { model, prompt, resolution, aspectRatio, styleIntensity, referenceImageUrl } = await req.json();
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    const size = SIZE_MAP[resolution as string] || "1024*1024";
+    const size = computeSize(resolution as string, aspectRatio as string);
     const guidanceScale = 3.5 + ((Number(styleIntensity) || 50) / 100) * 3.5;
 
     let modelId: string;
