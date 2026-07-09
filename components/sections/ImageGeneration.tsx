@@ -501,9 +501,46 @@ export default function ImageGeneration() {
     }
   };
 
-  const generate = () => {
+  const generate = async () => {
     if (!prompt.trim()) { setError("Please enter a prompt."); return; }
-    run("/api/wavespeed/image", { model, prompt, styleIntensity, lighting, resolution, variations, referenceImageUrl: refImageUrl || undefined }, "image");
+    const count = Math.min(4, Math.max(1, variations));
+    if (count === 1) {
+      run("/api/wavespeed/image", { model, prompt, styleIntensity, lighting, resolution, referenceImageUrl: refImageUrl || undefined }, "image");
+      return;
+    }
+    // Multiple variations — fire N requests in parallel, poll all simultaneously
+    setLoading(true);
+    setError(null);
+    setResults([]);
+    setProgress(10);
+    try {
+      const body = { model, prompt, styleIntensity, lighting, resolution, referenceImageUrl: refImageUrl || undefined };
+      const submissions = await Promise.all(
+        Array.from({ length: count }, () =>
+          fetch("/api/wavespeed/image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json())
+        )
+      );
+      const requestIds = submissions.map((d) => d.requestId).filter(Boolean);
+      if (!requestIds.length) throw new Error(submissions[0]?.error || "Request failed");
+      setProgress(25);
+      const allOutputs = await Promise.all(
+        requestIds.map((id) => pollResult(id, (p) => setProgress((prev) => Math.max(prev, p))))
+      );
+      setProgress(100);
+      const flat = allOutputs.flat().filter(Boolean);
+      setResults(flat);
+      if (flat[0]) {
+        await fetch("/api/supabase/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ section: "image", model, prompt, settings: body, output_url: flat[0] }),
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const editImage = () => {
