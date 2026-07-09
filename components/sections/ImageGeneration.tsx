@@ -556,7 +556,7 @@ export default function ImageGeneration() {
     if (!imageUrl) { setError("Please upload or paste an image URL."); return; }
     if (!editPrompt.trim()) { setError("Please describe the edit."); return; }
     const additionalImageUrls = additionalImages.filter((img) => img.url).map((img) => img.url);
-    run("/api/wavespeed/edit", { imageUrl, prompt: editPrompt, model: editModel, strength: editStrength, additionalImageUrls, aspectRatio }, "edit");
+    run("/api/wavespeed/edit", { imageUrl, prompt: editPrompt, model: editModel, strength: editStrength, additionalImageUrls, aspectRatio, resolution }, "edit");
   };
 
   const upscaleImage = () => {
@@ -783,6 +783,25 @@ export default function ImageGeneration() {
 
             <GoldSlider label="Edit Strength" min={10} max={100} value={editStrength} defaultValue={80} onChange={setEditStrength} formatValue={(v) => `${v}%`} />
             <p className="text-[10px] text-[#F5F0E844] font-body -mt-4">Higher = stronger edit, lower = stays closer to original</p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Resolution</label>
+              <div className="flex gap-2 flex-wrap">
+                {RESOLUTIONS.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setResolution(r)}
+                    className={`px-3 py-2 rounded-lg text-sm font-body font-medium transition-all ${
+                      resolution === r
+                        ? "bg-[#C9A84C] text-[#0A0A0F]"
+                        : "bg-[#111118] border border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="space-y-1.5">
               <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Aspect Ratio</label>

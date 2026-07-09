@@ -15,7 +15,7 @@ const NANO_BANANA_MODELS = new Set(["nano-banana-pro", "nano-banana-2"]);
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageUrl, prompt, model, strength, additionalImageUrls, aspectRatio } = await req.json();
+    const { imageUrl, prompt, model, strength, additionalImageUrls, aspectRatio, resolution } = await req.json();
     if (!imageUrl || !prompt) {
       return NextResponse.json({ error: "imageUrl and prompt are required" }, { status: 400 });
     }
@@ -27,8 +27,9 @@ export async function POST(req: NextRequest) {
     const ASPECT_DIMS: Record<string, [number, number]> = {
       "1:1": [1, 1], "4:3": [4, 3], "16:9": [16, 9], "3:4": [3, 4], "9:16": [9, 16],
     };
+    const BASE_PX: Record<string, number> = { "512px": 512, "1024px": 1024, "2048px": 2048, "4K": 2048 };
     const [aw, ah] = ASPECT_DIMS[aspectRatio as string] || [1, 1];
-    const base = 1024;
+    const base = BASE_PX[resolution as string] || 1024;
     const scale = base / Math.max(aw, ah);
     const outWidth  = Math.round(scale * aw / 8) * 8;
     const outHeight = Math.round(scale * ah / 8) * 8;
