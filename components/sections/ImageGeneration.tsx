@@ -193,6 +193,57 @@ function ImageUploadZone({ imageUrl, preview, uploading, onFile, onUrlPaste, onC
   );
 }
 
+// ─── Reference Image Upload Zone (compact, generate mode) ────────────────────
+
+function RefImageUploadZone({ uploading, onFile }: { uploading: boolean; onFile: (f: File) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) onFile(file);
+  }, [onFile]);
+
+  return (
+    <>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+          dragOver
+            ? "border-[#C9A84C] bg-[#C9A84C0D]"
+            : "border-[#C9A84C33] bg-[#111118] hover:border-[#C9A84C66] hover:bg-[#C9A84C08]"
+        }`}
+      >
+        {uploading ? (
+          <div className="w-5 h-5 border-2 border-[#C9A84C22] border-t-[#C9A84C] rounded-full animate-spin flex-shrink-0" />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-[#C9A84C11] flex items-center justify-center flex-shrink-0">
+            <Upload size={14} className="text-[#C9A84C]" />
+          </div>
+        )}
+        <div>
+          <p className="text-xs text-[#F5F0E8AA] font-body">
+            Drop a reference image or <span className="text-[#C9A84C]">click to upload</span>
+          </p>
+          <p className="text-[10px] text-[#F5F0E844] font-body mt-0.5">Style, face, or subject reference — guides the AI</p>
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+      />
+    </>
+  );
+}
+
 // ─── Additional Images Zone ───────────────────────────────────────────────────
 
 interface AdditionalImage {
@@ -342,6 +393,11 @@ export default function ImageGeneration() {
   // Upscale state
   const [upscaleResolution, setUpscaleResolution] = useState("4k");
 
+  // Generate reference image state
+  const [refImageUrl, setRefImageUrl]       = useState("");
+  const [refImagePreview, setRefImagePreview] = useState("");
+  const [refUploadLoading, setRefUploadLoading] = useState(false);
+
   // Shared image upload state
   const [imageUrl, setImageUrl]         = useState("");
   const [imagePreview, setImagePreview] = useState("");
@@ -376,6 +432,26 @@ export default function ImageGeneration() {
   const clearImage = () => {
     setImageUrl("");
     setImagePreview("");
+  };
+
+  const uploadRefFile = async (file: File) => {
+    setRefUploadLoading(true);
+    setRefImagePreview(URL.createObjectURL(file));
+    setRefImageUrl("");
+    try {
+      const url = await uploadFileDirect(file);
+      setRefImageUrl(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reference upload failed");
+      setRefImagePreview("");
+    } finally {
+      setRefUploadLoading(false);
+    }
+  };
+
+  const clearRefImage = () => {
+    setRefImageUrl("");
+    setRefImagePreview("");
   };
 
   const addAdditionalImage = async (file: File) => {
@@ -427,7 +503,7 @@ export default function ImageGeneration() {
 
   const generate = () => {
     if (!prompt.trim()) { setError("Please enter a prompt."); return; }
-    run("/api/wavespeed/image", { model, prompt, styleIntensity, lighting, resolution, variations }, "image");
+    run("/api/wavespeed/image", { model, prompt, styleIntensity, lighting, resolution, variations, referenceImageUrl: refImageUrl || undefined }, "image");
   };
 
   const editImage = () => {
@@ -526,6 +602,29 @@ export default function ImageGeneration() {
                   ✨ Soul Preset
                 </button>
               </div>
+            </div>
+
+            {/* Reference Image */}
+            <div className="space-y-2">
+              <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Reference Image <span className="text-[#F5F0E844] normal-case">(optional)</span></label>
+              {refImagePreview || refImageUrl ? (
+                <div className="relative rounded-xl overflow-hidden border border-[#C9A84C33]">
+                  <img src={refImagePreview || refImageUrl} alt="Reference" className="w-full object-cover max-h-40" />
+                  <button
+                    onClick={clearRefImage}
+                    className="absolute top-2 right-2 p-1.5 bg-[#0A0A0F99] rounded-full text-[#F5F0E8] hover:bg-[#0A0A0FCC] transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#0A0A0F] to-transparent p-2">
+                    <span className="text-[10px] text-[#C9A84C] font-body uppercase tracking-wider">
+                      {refImageUrl ? "Reference Ready" : "Uploading..."}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <RefImageUploadZone uploading={refUploadLoading} onFile={uploadRefFile} />
+              )}
             </div>
 
             <GoldDropdown label="Lighting Preset" value={lighting} options={LIGHTING_PRESETS} onChange={setLighting} />

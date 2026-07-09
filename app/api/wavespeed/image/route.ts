@@ -23,26 +23,36 @@ const SIZE_MAP: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { model, prompt, resolution, variations, styleIntensity } = await req.json();
+    const { model, prompt, resolution, variations, styleIntensity, referenceImageUrl } = await req.json();
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    const modelId = MODEL_MAP[model] || "wavespeed-ai/flux-2-klein-9b/text-to-image";
     const size = SIZE_MAP[resolution as string] || "1024*1024";
-    const count = Math.min(4, Math.max(1, Number(variations) || 1));
+    const guidanceScale = 3.5 + ((Number(styleIntensity) || 50) / 100) * 3.5;
 
-    // Generate sequentially if multiple — submit first one now
-    const result = await callWavespeed(modelId, {
-      prompt,
-      size,
-      num_images: count,
-      seed: -1,
-      enable_sync_mode: false,
-      guidance_scale: 3.5 + ((Number(styleIntensity) || 50) / 100) * 3.5,
-    });
+    let modelId: string;
+    let input: Record<string, unknown>;
 
+    if (referenceImageUrl) {
+      // Reference image provided — use Nano Banana 2 edit or FLUX Kontext
+      if (model === "google/nano-banana-2" || model === "google/nano-banana-pro") {
+        modelId = model === "google/nano-banana-2" ? "google/nano-banana-2/edit" : "google/nano-banana-pro/edit";
+        input = { images: [referenceImageUrl], prompt, resolution: "2k" };
+      } else {
+        // Fall back to FLUX Kontext Max for all other models
+        modelId = "wavespeed-ai/flux-kontext-max";
+        input = { image: referenceImageUrl, prompt, guidance_scale: guidanceScale };
+      }
+    } else {
+      // Pure text-to-image
+      const count = Math.min(4, Math.max(1, Number(variations) || 1));
+      modelId = MODEL_MAP[model] || "wavespeed-ai/flux-2-klein-9b/text-to-image";
+      input = { prompt, size, num_images: count, seed: -1, enable_sync_mode: false, guidance_scale: guidanceScale };
+    }
+
+    const result = await callWavespeed(modelId, input);
     const requestId = result.data?.id || result.id;
     if (!requestId) throw new Error("No request ID returned from WaveSpeed");
 
