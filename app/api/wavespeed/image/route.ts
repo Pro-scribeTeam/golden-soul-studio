@@ -61,12 +61,18 @@ export async function POST(req: NextRequest) {
       } else {
         // Fall back to FLUX Kontext Max for all other models
         modelId = "wavespeed-ai/flux-kontext-max";
-        input = { image: referenceImageUrl, prompt, guidance_scale: guidanceScale };
+        input = { image: referenceImageUrl, prompt, aspect_ratio: aspectRatio || "1:1", guidance_scale: guidanceScale };
       }
     } else {
       // Pure text-to-image — always 1 image per request (caller fires N parallel requests for variations)
       modelId = MODEL_MAP[model] || "wavespeed-ai/flux-2-klein-9b/text-to-image";
-      input = { prompt, size, num_images: 1, seed: -1, enable_sync_mode: false, guidance_scale: guidanceScale };
+
+      // FLUX Kontext models use `aspect_ratio` string; FLUX.2 / Dev use `size` "W*H"
+      if (modelId.includes("flux-kontext") || modelId.includes("flux-2-max")) {
+        input = { prompt, aspect_ratio: aspectRatio || "1:1", num_images: 1, seed: -1, enable_sync_mode: false, guidance_scale: guidanceScale };
+      } else {
+        input = { prompt, size, num_images: 1, seed: -1, enable_sync_mode: false, guidance_scale: guidanceScale };
+      }
     }
 
     const result = await callWavespeed(modelId, input);
