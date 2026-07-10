@@ -238,7 +238,8 @@ export default function ColorGrading() {
           <GoldDropdown
             label="Jeff M Dixon Brand"
             value={jeffVal}
-            options={[{ value: "", label: "Select Jeff's Grade" }, ...JEFF_OPTIONS]}
+            options={JEFF_OPTIONS}
+            placeholder="Select Jeff's Grade"
             onChange={(v) => { setJeffVal(v); if (v) applyPresetById(v, "jeff"); }}
           />
         </div>
@@ -246,7 +247,8 @@ export default function ColorGrading() {
           <GoldDropdown
             label="Cinematic Grades"
             value={cineVal}
-            options={[{ value: "", label: "Select Cinematic Grade" }, ...CINE_OPTIONS]}
+            options={CINE_OPTIONS}
+            placeholder="Select Cinematic Grade"
             onChange={(v) => { setCineVal(v); if (v) applyPresetById(v, "cine"); }}
           />
         </div>
@@ -254,7 +256,8 @@ export default function ColorGrading() {
           <GoldDropdown
             label="Music Video Grades"
             value={musicVal}
-            options={[{ value: "", label: "Select Music Video Grade" }, ...MUSIC_OPTIONS]}
+            options={MUSIC_OPTIONS}
+            placeholder="Select Music Video Grade"
             onChange={(v) => { setMusicVal(v); if (v) applyPresetById(v, "music"); }}
           />
         </div>
@@ -262,7 +265,8 @@ export default function ColorGrading() {
           <GoldDropdown
             label="Natural Grades"
             value={naturalVal}
-            options={[{ value: "", label: "Select Natural Grade" }, ...NATURAL_OPTIONS]}
+            options={NATURAL_OPTIONS}
+            placeholder="Select Natural Grade"
             onChange={(v) => { setNaturalVal(v); if (v) applyPresetById(v, "natural"); }}
           />
         </div>
@@ -271,7 +275,8 @@ export default function ColorGrading() {
             <GoldDropdown
               label="My Presets"
               value={customVal}
-              options={[{ value: "", label: "Select Saved Preset" }, ...customPresets.map((p) => ({ value: p.id, label: p.name }))]}
+              options={customPresets.map((p) => ({ value: p.id, label: p.name }))}
+              placeholder="Select Saved Preset"
               onChange={(v) => {
                 setCustomVal(v);
                 if (v) {
