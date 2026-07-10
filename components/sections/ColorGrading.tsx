@@ -79,12 +79,21 @@ export default function ColorGrading() {
   const [splitPos, setSplitPos] = useState(50);
   const [dragging, setDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [gradedUrl, setGradedUrl] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [showSaveName, setShowSaveName] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [customPresets, setCustomPresets] = useState<GradePreset[]>(() => {
+    try { return JSON.parse(localStorage.getItem("gss_custom_presets") || "[]"); } catch { return []; }
+  });
 
   // Dropdown values — only one active at a time
   const [jeffVal,    setJeffVal]    = useState("");
   const [cineVal,    setCineVal]    = useState("");
   const [musicVal,   setMusicVal]   = useState("");
   const [naturalVal, setNaturalVal] = useState("");
+  const [customVal,  setCustomVal]  = useState("");
 
   const applyPresetById = (id: string, clearGroup: "jeff"|"cine"|"music"|"natural") => {
     const preset = PRESETS.find((p) => p.id === id);
@@ -100,7 +109,94 @@ export default function ColorGrading() {
   const resetAll = () => {
     setActivePreset(null);
     setSettings(DEFAULT_SETTINGS);
-    setJeffVal(""); setCineVal(""); setMusicVal(""); setNaturalVal("");
+    setGradedUrl(null);
+    setJeffVal(""); setCineVal(""); setMusicVal(""); setNaturalVal(""); setCustomVal("");
+  };
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const isVideo = file?.type.startsWith("video/");
+
+  const bakeGrade = (filter: string, src: string): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("Canvas not available")); return; }
+        ctx.filter = filter;
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(
+          (blob) => blob ? resolve(URL.createObjectURL(blob)) : reject(new Error("Export failed")),
+          "image/jpeg", 0.95
+        );
+      };
+      img.onerror = () => reject(new Error("Image failed to load"));
+      img.src = src;
+    });
+
+  const handleApplyGrade = async () => {
+    if (!previewUrl) { showToast("Upload an image first"); return; }
+    if (isVideo) { showToast("Grade applied — export downloads the original video with CSS filter values shown below"); return; }
+    setApplying(true);
+    try {
+      const url = await bakeGrade(filterStr, previewUrl);
+      setGradedUrl(url);
+      showToast("Grade applied! Use Export to download.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Apply failed");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!previewUrl) { showToast("Upload an image first"); return; }
+    if (isVideo) {
+      // For video — download original (CSS filter can't be baked in browser)
+      const a = document.createElement("a");
+      a.href = previewUrl;
+      a.download = `graded-${file!.name}`;
+      a.click();
+      showToast("Video downloaded (open in ProCut editor to apply grade on export)");
+      return;
+    }
+    setApplying(true);
+    try {
+      const url = gradedUrl || await bakeGrade(filterStr, previewUrl);
+      if (!gradedUrl) setGradedUrl(url);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `graded-${file?.name?.replace(/\.[^.]+$/, "") || "output"}.jpg`;
+      a.click();
+      showToast("Exported!");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleSavePreset = () => {
+    if (!saveName.trim()) return;
+    const newPreset: GradePreset = {
+      id: `custom-${Date.now()}`,
+      name: saveName.trim(),
+      color: "#C9A84C",
+      group: "CUSTOM",
+      settings: { ...settings },
+    };
+    const updated = [...customPresets, newPreset];
+    setCustomPresets(updated);
+    localStorage.setItem("gss_custom_presets", JSON.stringify(updated));
+    setSaveName("");
+    setShowSaveName(false);
+    showToast(`Preset "${newPreset.name}" saved!`);
   };
 
   // Drag-to-split logic
@@ -137,7 +233,7 @@ export default function ColorGrading() {
       <UploadZone label="Upload video or image to grade" accept="video/*,image/*" onFile={setFile} file={file} hint="MP4, MOV, JPG, PNG, WebP" />
 
       {/* ── Dropdown preset selectors ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 [&>*:last-child]:lg:col-span-1">
         <div className="space-y-1.5">
           <GoldDropdown
             label="Jeff M Dixon Brand"
@@ -170,6 +266,22 @@ export default function ColorGrading() {
             onChange={(v) => { setNaturalVal(v); if (v) applyPresetById(v, "natural"); }}
           />
         </div>
+        {customPresets.length > 0 && (
+          <div className="space-y-1.5">
+            <GoldDropdown
+              label="My Presets"
+              value={customVal}
+              options={[{ value: "", label: "Select Saved Preset" }, ...customPresets.map((p) => ({ value: p.id, label: p.name }))]}
+              onChange={(v) => {
+                setCustomVal(v);
+                if (v) {
+                  const p = customPresets.find((x) => x.id === v);
+                  if (p) { setActivePreset(p.id); setSettings(p.settings as Record<SettingsKey, number>); setJeffVal(""); setCineVal(""); setMusicVal(""); setNaturalVal(""); }
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -197,7 +309,7 @@ export default function ColorGrading() {
               max={max}
               value={settings[key]}
               defaultValue={0}
-              onChange={(v) => setSettings((s) => ({ ...s, [key]: v }))}
+              onChange={(v) => { setSettings((s) => ({ ...s, [key]: v })); setGradedUrl(null); }}
               formatValue={(v) => (v >= 0 ? `+${v}` : String(v))}
             />
           ))}
@@ -251,17 +363,50 @@ export default function ColorGrading() {
             )}
           </div>
 
-          <div className="flex gap-3">
-            <GoldButton className="flex-1" onClick={() => {}}>✅ Apply Grade</GoldButton>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-[#111118] border border-[#C9A84C33] rounded-lg text-sm text-[#C9A84C] hover:bg-[#C9A84C0D] transition-colors font-body">
+          <div className="flex gap-3 flex-wrap">
+            <GoldButton className="flex-1" onClick={handleApplyGrade} loading={applying} disabled={applying || !previewUrl}>
+              {applying ? "Applying..." : gradedUrl ? "✅ Grade Applied" : "✅ Apply Grade"}
+            </GoldButton>
+            <button
+              onClick={() => setShowSaveName((v) => !v)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#111118] border border-[#C9A84C33] rounded-lg text-sm text-[#C9A84C] hover:bg-[#C9A84C0D] transition-colors font-body"
+            >
               <Save size={14} /> Save Preset
             </button>
             {previewUrl && (
-              <a href={previewUrl} download="graded-output" className="flex items-center gap-2 px-4 py-2.5 bg-[#111118] border border-[#C9A84C33] rounded-lg text-sm text-[#C9A84C] hover:bg-[#C9A84C0D] transition-colors font-body">
+              <button
+                onClick={handleExport}
+                disabled={applying}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#111118] border border-[#C9A84C33] rounded-lg text-sm text-[#C9A84C] hover:bg-[#C9A84C0D] transition-colors font-body disabled:opacity-50"
+              >
                 <Download size={14} /> Export
-              </a>
+              </button>
             )}
           </div>
+
+          {/* Save preset name input */}
+          {showSaveName && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSavePreset()}
+                placeholder="Preset name..."
+                autoFocus
+                className="flex-1 px-3 py-2 bg-[#111118] border border-[#C9A84C33] rounded-lg text-sm text-[#F5F0E8] font-body focus:outline-none focus:border-[#C9A84C]"
+              />
+              <button onClick={handleSavePreset} className="px-3 py-2 bg-[#C9A84C] text-[#0A0A0F] rounded-lg text-xs font-body font-semibold">Save</button>
+              <button onClick={() => setShowSaveName(false)} className="px-3 py-2 text-[#F5F0E844] text-xs font-body">Cancel</button>
+            </div>
+          )}
+
+          {/* Toast */}
+          {toast && (
+            <div className="px-4 py-2.5 bg-[#C9A84C11] border border-[#C9A84C44] rounded-lg text-sm text-[#C9A84C] font-body text-center">
+              {toast}
+            </div>
+          )}
         </div>
       </div>
     </div>
