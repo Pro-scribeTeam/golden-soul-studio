@@ -8,6 +8,7 @@ import { LoadingRing } from "@/components/ui/LoadingRing";
 import { OutputCard } from "@/components/ui/OutputCard";
 import { UploadZone } from "@/components/ui/UploadZone";
 import { Music } from "lucide-react";
+import { uploadFileDirect } from "@/lib/uploadDirect";
 
 interface LipSyncModel {
   id: string;
@@ -109,7 +110,11 @@ const SYNC_MODES = [
 export default function LipSync() {
   const [selectedModel, setSelectedModel] = useState(MODELS[0]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoUploading, setVideoUploading] = useState(false);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioUrl, setAudioUrl] = useState("");
+  const [audioUploading, setAudioUploading] = useState(false);
   const [savedTrack, setSavedTrack] = useState("");
   const [syncMode, setSyncMode] = useState("auto");
   const [expressionIntensity, setExpressionIntensity] = useState(60);
@@ -119,13 +124,44 @@ export default function LipSync() {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const handleVideoFile = async (file: File) => {
+    setVideoFile(file);
+    setVideoUrl("");
+    setVideoUploading(true);
+    try {
+      const url = await uploadFileDirect(file);
+      setVideoUrl(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Video upload failed");
+      setVideoFile(null);
+    } finally {
+      setVideoUploading(false);
+    }
+  };
+
+  const handleAudioFile = async (file: File) => {
+    setAudioFile(file);
+    setAudioUrl("");
+    setSavedTrack("");
+    setAudioUploading(true);
+    try {
+      const url = await uploadFileDirect(file);
+      setAudioUrl(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Audio upload failed");
+      setAudioFile(null);
+    } finally {
+      setAudioUploading(false);
+    }
+  };
+
   const generate = async () => {
-    if (!videoFile) {
-      setError("Please upload a video or photo.");
+    if (!videoFile || !videoUrl) {
+      setError(videoUploading ? "Video is still uploading, please wait." : "Please upload a video or photo.");
       return;
     }
-    if (!audioFile && !savedTrack) {
-      setError("Please upload an audio track or select a saved track.");
+    if (!audioUrl && !savedTrack) {
+      setError(audioUploading ? "Audio is still uploading, please wait." : "Please upload an audio track or select a saved track.");
       return;
     }
 
@@ -140,8 +176,8 @@ export default function LipSync() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: selectedModel.id,
-          videoUrl: URL.createObjectURL(videoFile),
-          audioUrl: audioFile ? URL.createObjectURL(audioFile) : savedTrack,
+          videoUrl,
+          audioUrl: audioUrl || savedTrack,
           syncMode,
           expressionIntensity,
           mouthSensitivity,
@@ -248,20 +284,24 @@ export default function LipSync() {
           <UploadZone
             label="Upload video or photo"
             accept="video/*,image/*"
-            onFile={setVideoFile}
+            onFile={handleVideoFile}
             file={videoFile}
             hint="Video for sync — Photo for AI Music Video Generator / InfiniteTalk"
           />
+          {videoUploading && <p className="text-xs text-[#C9A84C] font-body animate-pulse">Uploading video...</p>}
+          {videoUrl && !videoUploading && <p className="text-xs text-[#6BBFB5] font-body">✓ Video ready</p>}
 
           <div className="space-y-3">
             <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">Audio Track</label>
             <UploadZone
               label="Upload Jeff's vocal or music track"
               accept="audio/*"
-              onFile={setAudioFile}
+              onFile={handleAudioFile}
               file={audioFile}
               hint="MP3, WAV, M4A supported"
             />
+            {audioUploading && <p className="text-xs text-[#C9A84C] font-body animate-pulse">Uploading audio...</p>}
+            {audioUrl && !audioUploading && <p className="text-xs text-[#6BBFB5] font-body">✓ Audio ready</p>}
             <p className="text-xs text-[#F5F0E855] text-center">— or select a saved track —</p>
             <div className="flex gap-2 flex-wrap">
               {SAVED_TRACKS.map((track) => (
@@ -308,7 +348,7 @@ export default function LipSync() {
             </div>
           )}
 
-          <GoldButton size="lg" onClick={generate} loading={loading} disabled={loading} className="w-full">
+          <GoldButton size="lg" onClick={generate} loading={loading} disabled={loading || videoUploading || audioUploading} className="w-full">
             {loading ? "Syncing..." : "👄 Sync Video"}
           </GoldButton>
 
