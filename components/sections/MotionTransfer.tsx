@@ -8,6 +8,7 @@ import { LoadingRing } from "@/components/ui/LoadingRing";
 import { OutputCard } from "@/components/ui/OutputCard";
 import { UploadZone } from "@/components/ui/UploadZone";
 import { DollarSign } from "lucide-react";
+import { uploadFileDirect } from "@/lib/uploadDirect";
 
 interface MotionModel {
   id: string;
@@ -83,7 +84,11 @@ const QUALITY_LABELS = ["Draft", "Cinema"];
 export default function MotionTransfer() {
   const [selectedModel, setSelectedModel] = useState(MODELS[0]);
   const [characterFile, setCharacterFile] = useState<File | null>(null);
+  const [characterUrl, setCharacterUrl] = useState("");
+  const [characterUploading, setCharacterUploading] = useState(false);
   const [motionFile, setMotionFile] = useState<File | null>(null);
+  const [motionUrl, setMotionUrl] = useState("");
+  const [motionUploading, setMotionUploading] = useState(false);
   const [motionPreset, setMotionPreset] = useState("fresno-pop-lock");
   const [quality, setQuality] = useState(1);
   const [identityStrength, setIdentityStrength] = useState(75);
@@ -93,13 +98,43 @@ export default function MotionTransfer() {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const handleCharacterFile = async (file: File) => {
+    setCharacterFile(file);
+    setCharacterUrl("");
+    setCharacterUploading(true);
+    try {
+      const url = await uploadFileDirect(file);
+      setCharacterUrl(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Character image upload failed");
+      setCharacterFile(null);
+    } finally {
+      setCharacterUploading(false);
+    }
+  };
+
+  const handleMotionFile = async (file: File) => {
+    setMotionFile(file);
+    setMotionUrl("");
+    setMotionUploading(true);
+    try {
+      const url = await uploadFileDirect(file);
+      setMotionUrl(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Motion video upload failed");
+      setMotionFile(null);
+    } finally {
+      setMotionUploading(false);
+    }
+  };
+
   const generate = async () => {
-    if (!characterFile) {
-      setError("Please upload a character image.");
+    if (!characterFile || !characterUrl) {
+      setError(characterUploading ? "Image is still uploading, please wait." : "Please upload a character image.");
       return;
     }
-    if (!motionFile && motionPreset === "upload-custom") {
-      setError("Please upload a motion reference video.");
+    if (motionPreset === "upload-custom" && (!motionFile || !motionUrl)) {
+      setError(motionUploading ? "Video is still uploading, please wait." : "Please upload a motion reference video.");
       return;
     }
 
@@ -109,21 +144,18 @@ export default function MotionTransfer() {
     setProgress(10);
 
     try {
-      // Upload files first - for now we use URLs (file upload to Supabase storage could be added)
-      // For demo, we pass the preset as motion description
-      const formData = new FormData();
-      formData.append("model", selectedModel.id);
-      formData.append("motionPreset", motionPreset);
-      formData.append("identityStrength", String(identityStrength));
-      formData.append("motionIntensity", String(motionIntensity));
-      formData.append("quality", QUALITY_LABELS[quality]);
-      if (characterFile) formData.append("characterImage", characterFile);
-      if (motionFile) formData.append("motionVideo", motionFile);
-
-      // Use the motion API route via JSON with temp URLs
       const res = await fetch("/api/wavespeed/motion", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: selectedModel.id,
+          characterImageUrl: characterUrl,
+          motionVideoUrl: motionPreset === "upload-custom" ? motionUrl : undefined,
+          motionPreset: motionPreset !== "upload-custom" ? motionPreset : undefined,
+          identityStrength,
+          motionIntensity,
+          quality: QUALITY_LABELS[quality],
+        }),
       });
 
       const data = await res.json();
@@ -218,19 +250,23 @@ export default function MotionTransfer() {
           <UploadZone
             label="Upload Jeff's photo or any character image"
             accept="image/*"
-            onFile={setCharacterFile}
+            onFile={handleCharacterFile}
             file={characterFile}
             hint="JPG, PNG, WebP supported"
           />
+          {characterUploading && <p className="text-xs text-[#C9A84C] font-body animate-pulse">Uploading image...</p>}
+          {characterUrl && !characterUploading && <p className="text-xs text-[#6BBFB5] font-body">✓ Image ready</p>}
 
           <div className="space-y-2">
             <UploadZone
               label="Upload driving video (motion reference)"
               accept="video/*"
-              onFile={setMotionFile}
+              onFile={handleMotionFile}
               file={motionFile}
               hint="MP4, MOV supported"
             />
+            {motionUploading && <p className="text-xs text-[#C9A84C] font-body animate-pulse">Uploading video...</p>}
+            {motionUrl && !motionUploading && <p className="text-xs text-[#6BBFB5] font-body">✓ Video ready</p>}
             <p className="text-xs text-[#F5F0E855] text-center">— or select a motion preset —</p>
             <GoldDropdown
               value={motionPreset}
@@ -280,7 +316,7 @@ export default function MotionTransfer() {
             <p className="text-sm text-[#F5F0E8] font-body mt-1">{selectedModel.cost}</p>
           </div>
 
-          <GoldButton size="lg" onClick={generate} loading={loading} disabled={loading} className="w-full">
+          <GoldButton size="lg" onClick={generate} loading={loading} disabled={loading || characterUploading || motionUploading} className="w-full">
             {loading ? "Transferring..." : "🎭 Transfer Motion"}
           </GoldButton>
 
