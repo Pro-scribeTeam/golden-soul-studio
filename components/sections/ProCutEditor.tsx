@@ -504,6 +504,40 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const waSourceRef = useRef<MediaElementAudioSourceNode|null>(null);
   const waGainRef   = useRef<GainNode|null>(null);
 
+  // ── Proxy mode: draw video frames onto a low-res canvas instead of
+  // compositing the full-HD video texture every frame. Reduces GPU cost
+  // significantly during editing; export always uses original source URLs.
+  const [proxyMode, setProxyMode] = useState(true);
+  const canvasRef   = useRef<HTMLCanvasElement>(null);
+  const proxyRafRef = useRef<number>(-1);
+
+  useEffect(()=>{
+    if(!proxyMode){ cancelAnimationFrame(proxyRafRef.current); return; }
+    const canvas = canvasRef.current;
+    if(!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if(!ctx) return;
+
+    const draw = ()=>{
+      const vid = videoRef.current;
+      if(vid && vid.readyState >= 2 && vid.videoWidth > 0){
+        // Replicate object-fit:contain letterboxing inside the canvas
+        const vAR = vid.videoWidth / vid.videoHeight;
+        const cAR = canvas.width / canvas.height;
+        let dx=0, dy=0, dw=canvas.width, dh=canvas.height;
+        if(vAR > cAR){ dh = canvas.width  / vAR; dy = (canvas.height - dh) / 2; }
+        else          { dw = canvas.height * vAR; dx = (canvas.width  - dw) / 2; }
+        ctx.fillStyle="#000";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(vid, dx, dy, dw, dh);
+      }
+      proxyRafRef.current = requestAnimationFrame(draw);
+    };
+
+    proxyRafRef.current = requestAnimationFrame(draw);
+    return ()=>{ cancelAnimationFrame(proxyRafRef.current); };
+  },[proxyMode]);
+
   // Active clips at current playhead position
   const activeVideoClip = clips
     .filter(c => c.type==="video" && !!c.url && c.start<=playhead && c.start+c.duration>playhead)
@@ -725,6 +759,18 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
             position:"absolute", inset:0, width:"100%", height:"100%",
             objectFit:"contain", background:"#000",
             display: hasVideo ? "block" : "none",
+            visibility: proxyMode && hasVideo ? "hidden" : "visible",
+            filter: videoFilter || undefined,
+            opacity: transVideoOpacity,
+            transform: transTransform || undefined,
+            clipPath: transClipPath || undefined,
+          }}
+        />
+        {/* Proxy canvas — low-res 854×480 composite drawn via RAF when proxyMode=true */}
+        <canvas ref={canvasRef} width={854} height={480}
+          style={{
+            position:"absolute", inset:0, width:"100%", height:"100%",
+            display: proxyMode && hasVideo ? "block" : "none",
             filter: videoFilter || undefined,
             opacity: transVideoOpacity,
             transform: transTransform || undefined,
@@ -837,6 +883,16 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         {/* Timecode + maximize toggle */}
         <div style={{position:"absolute", top:8, right:8, display:"flex", alignItems:"center", gap:6}}>
           <span style={{fontSize:10, color:`${C.muted}77`, fontFamily:"monospace"}}>{fmtTC(playhead)}</span>
+          <button onClick={()=>setProxyMode(m=>!m)} title={proxyMode?"Proxy mode ON (480p) — click for HD":"HD mode — click for Proxy (480p)"}
+            style={{
+              height:22, padding:"0 7px", borderRadius:4,
+              background: proxyMode ? C.gold+"22" : "#00000088",
+              border:`1px solid ${proxyMode ? C.gold+"66" : C.border}`,
+              color: proxyMode ? C.gold : C.muted, cursor:"pointer",
+              fontSize:9, fontWeight:700, letterSpacing:"0.05em",
+            }}>
+            {proxyMode ? "P" : "HD"}
+          </button>
           <button onClick={onToggleMax} title={isMaximized?"Restore panel":"Maximize preview"} style={{
             width:22, height:22, borderRadius:4, background:"#00000088",
             border:`1px solid ${C.border}`, color:C.muted, cursor:"pointer",
