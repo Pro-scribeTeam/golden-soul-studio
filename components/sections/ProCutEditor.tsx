@@ -494,10 +494,11 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 }) {
   const wRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const loadedVideoUrl = useRef<string>("");
-  const loadedAudioUrl = useRef<string>("");
-  const loadingAudio   = useRef<boolean>(false); // true while waiting for loadedmetadata
+  // Per-clip audio elements — one per clip so Music + SFX play simultaneously
+  const audioElementsRef   = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const loadedAudioUrlsRef = useRef<Map<string, string>>(new Map());
+  const loadingAudioIdsRef = useRef<Set<string>>(new Set());
   // Web Audio API routing for detached audio — avoids two-element decode contention
   const waCtxRef    = useRef<AudioContext|null>(null);
   const waSourceRef = useRef<MediaElementAudioSourceNode|null>(null);
@@ -507,9 +508,12 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const activeVideoClip = clips
     .filter(c => c.type==="video" && !!c.url && c.start<=playhead && c.start+c.duration>playhead)
     .at(-1) ?? null;
-  const activeAudioClip = clips
-    .filter(c => c.type==="audio" && !!c.url && c.start<=playhead && c.start+c.duration>playhead)
-    .at(-1) ?? null;
+  const activeAudioClips = clips
+    .filter(c => c.type==="audio" && !!c.url && c.start<=playhead && c.start+c.duration>playhead);
+  // Detached audio: clip sharing mediaKey with the active video (routed via Web Audio, not its own element)
+  const detachedAudioClip = activeAudioClips.find(
+    c => c.mediaKey && activeVideoClip?.mediaKey && c.mediaKey === activeVideoClip.mediaKey
+  ) ?? null;
 
   // Sync video element with timeline
   useEffect(()=>{
@@ -551,7 +555,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 
   // Sync audio-only clips
   // Detect detached audio: audio clip that came from the same source as the active video clip
-  const isDetachedAudio = !!(activeAudioClip?.mediaKey && activeVideoClip?.mediaKey && activeAudioClip.mediaKey === activeVideoClip.mediaKey);
+  const isDetachedAudio = !!detachedAudioClip;
 
   // Web Audio routing for detached audio.
   // Root cause of "slow-motion lag": loading a second HTMLMediaElement from a large MP4 blob
@@ -587,54 +591,63 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   useEffect(()=>{
     if(!waGainRef.current||!waCtxRef.current||!isDetachedAudio) return;
     waGainRef.current.gain.setTargetAtTime(
-      Math.min(1,(activeAudioClip?.volume??100)/100),
+      Math.min(1,(detachedAudioClip?.volume??100)/100),
       waCtxRef.current.currentTime, 0.01
     );
-  },[activeAudioClip?.volume, isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[detachedAudioClip?.volume, isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync separate (non-detached) audio element
+  // Sync all non-detached audio clips — each gets its own HTMLAudioElement for simultaneous playback
   useEffect(()=>{
-    const aud=audioRef.current;
-    if(!aud) return;
-    if(isDetachedAudio){
-      // Detached audio comes from video via Web Audio — clear any previous source on aud
-      if(loadedAudioUrl.current){
-        loadedAudioUrl.current="";
-        aud.pause(); aud.removeAttribute("src"); aud.load();
-      }
-      return;
-    }
-    const url=activeAudioClip?.url??"";
-    const clipStart=activeAudioClip?.start??0;
-    const inPoint=activeAudioClip?.inPoint??0;
-    const target=Math.max(0,inPoint+(playhead-clipStart));
+    const nonDetachedClips = activeAudioClips.filter(c => c !== detachedAudioClip);
+    const activeIds = new Set(nonDetachedClips.map(c => c.id));
 
-    if(loadedAudioUrl.current!==url){
-      loadedAudioUrl.current=url;
-      aud.pause();
-      if(url){
-        loadingAudio.current=true;
-        aud.src=url;
-        aud.addEventListener("loadedmetadata",()=>{
-          loadingAudio.current=false;
-          aud.currentTime=target;
-          if(playing) aud.play().catch(()=>{});
-        },{once:true});
-        aud.load();
-      } else {
-        loadingAudio.current=false;
-        aud.removeAttribute("src"); aud.load();
+    // Tear down elements for clips no longer at the playhead
+    for(const [id, aud] of audioElementsRef.current){
+      if(!activeIds.has(id)){
+        aud.pause(); aud.removeAttribute("src"); aud.load();
+        audioElementsRef.current.delete(id);
+        loadedAudioUrlsRef.current.delete(id);
+        loadingAudioIdsRef.current.delete(id);
       }
-      return;
     }
-    if(!url) return;
-    if(playing){
-      if(aud.paused&&!loadingAudio.current){ aud.currentTime=target; aud.play().catch(()=>{}); }
-    } else {
-      if(!aud.paused) aud.pause();
-      aud.currentTime=target;
+
+    for(const clip of nonDetachedClips){
+      let aud = audioElementsRef.current.get(clip.id);
+      if(!aud){ aud=new Audio(); aud.preload="auto"; audioElementsRef.current.set(clip.id,aud); }
+
+      const target = Math.max(0,(clip.inPoint??0)+(playhead-clip.start));
+      const url = clip.url??"";
+
+      aud.volume = Math.min(1,(clip.volume??100)/100);
+      aud.muted  = clip.muted??false;
+      aud.playbackRate = clip.speed ? clip.speed/100 : 1;
+
+      if(loadedAudioUrlsRef.current.get(clip.id) !== url){
+        loadedAudioUrlsRef.current.set(clip.id, url);
+        aud.pause(); loadingAudioIdsRef.current.delete(clip.id);
+        if(url){
+          const capturedAud = aud;
+          const capturedId  = clip.id;
+          loadingAudioIdsRef.current.add(capturedId);
+          capturedAud.src = url;
+          capturedAud.addEventListener("loadedmetadata",()=>{
+            loadingAudioIdsRef.current.delete(capturedId);
+            capturedAud.currentTime = target;
+            if(playing) capturedAud.play().catch(()=>{});
+          },{once:true});
+          capturedAud.load();
+        } else { aud.removeAttribute("src"); aud.load(); }
+        continue;
+      }
+      if(!url) continue;
+      if(playing){
+        if(aud.paused&&!loadingAudioIdsRef.current.has(clip.id)){ aud.currentTime=target; aud.play().catch(()=>{}); }
+      } else {
+        if(!aud.paused) aud.pause();
+        aud.currentTime=target;
+      }
     }
-  },[playing,playhead,activeAudioClip,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[playing,playhead,activeAudioClips,detachedAudioClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Apply clip speed to video playback rate
   useEffect(()=>{
@@ -643,13 +656,6 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     vid.playbackRate=activeVideoClip?.speed?activeVideoClip.speed/100:1;
   },[activeVideoClip?.speed]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Audio element playback rate (non-detached only)
-  useEffect(()=>{
-    const aud=audioRef.current;
-    if(!aud||isDetachedAudio) return;
-    aud.playbackRate=activeAudioClip?.speed?activeAudioClip.speed/100:1;
-  },[activeAudioClip?.speed,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Apply video clip volume/mute — when Web Audio is active, keep video unmuted
   useEffect(()=>{
     const vid=videoRef.current;
@@ -657,14 +663,6 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     vid.volume=Math.min(1,(activeVideoClip?.volume??100)/100);
     if(!isDetachedAudio) vid.muted=activeVideoClip?.muted??false;
   },[activeVideoClip?.volume,activeVideoClip?.muted,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Apply audio clip volume/mute to separate audio element (non-detached)
-  useEffect(()=>{
-    const aud=audioRef.current;
-    if(!aud||isDetachedAudio) return;
-    aud.volume=Math.min(1,(activeAudioClip?.volume??100)/100);
-    aud.muted=activeAudioClip?.muted??false;
-  },[activeAudioClip?.volume,activeAudioClip?.muted,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const videoFilter = getClipCSSFilter(activeVideoClip);
   const videoOpacity = (activeVideoClip?.opacity ?? 100) / 100;
@@ -721,8 +719,6 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     <div style={{flex:1, background:"#000", display:"flex", flexDirection:"column", minWidth:0}}>
       {/* Canvas */}
       <div style={{flex:1, background:"#050505", position:"relative", overflow:"hidden"}}>
-        {/* Audio element for audio-only clips */}
-        <audio ref={audioRef} preload="auto" style={{display:"none"}}/>
         {/* Video element — always mounted, shown when active video clip exists */}
         <video ref={videoRef} preload="auto" playsInline
           style={{
@@ -754,10 +750,10 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
               borderRadius:4, display:"flex", flexDirection:"column",
               alignItems:"center", justifyContent:"center", gap:8,
             }}>
-              {activeAudioClip ? (
+              {activeAudioClips.length > 0 ? (
                 <>
                   <Music2 size={36} color={C.gold}/>
-                  <span style={{fontSize:11, color:C.muted}}>Audio: {activeAudioClip.name}</span>
+                  <span style={{fontSize:11, color:C.muted}}>Audio: {activeAudioClips.map(c=>c.name).join(", ")}</span>
                 </>
               ) : (
                 <>
@@ -3298,13 +3294,33 @@ export default function ProCutEditor() {
     localStorage.setItem("procut-assets",JSON.stringify(p));
   },[assets]);
 
-  // Playback tick
+  // Playback tick — rAF + real delta time prevents the drift/glitch of setInterval
   useEffect(()=>{
     if(!playing) return;
-    const iv=setInterval(()=>{
-      setPlayhead(p=>{ if(p>=duration){ clearInterval(iv); setPlaying(false); return 0; } return p+1/24; });
-    },1000/24);
-    return ()=>clearInterval(iv);
+    let rafId: number;
+    let lastTime = performance.now();
+
+    const tick = () => {
+      const now = performance.now();
+      // clamp delta to 100ms so a backgrounded tab can't cause a huge jump
+      const delta = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+
+      setPlayhead(p => {
+        const next = p + delta;
+        if (next >= duration) {
+          cancelAnimationFrame(rafId);
+          setPlaying(false);
+          return 0;
+        }
+        return next;
+      });
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   },[playing,duration]);
 
   const selectedClip=clips.find(c=>c.id===primaryId)||null;
