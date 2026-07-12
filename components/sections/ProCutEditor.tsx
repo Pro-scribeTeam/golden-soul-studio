@@ -495,6 +495,9 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const wRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadedVideoUrl = useRef<string>("");
+  // Prevents calling vid.play() on every RAF frame before the video actually starts;
+  // reset whenever playing becomes false or the clip url changes.
+  const playInitiatedRef = useRef(false);
   // Per-clip audio elements — one per clip so Music + SFX play simultaneously
   const audioElementsRef   = useRef<Map<string, HTMLAudioElement>>(new Map());
   const loadedAudioUrlsRef = useRef<Map<string, string>>(new Map());
@@ -561,12 +564,13 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     // Source changed — reload
     if(loadedVideoUrl.current !== url) {
       loadedVideoUrl.current = url;
+      playInitiatedRef.current = false;
       vid.pause();
       if(url) {
         vid.src = url;
         vid.addEventListener("loadedmetadata", ()=>{
           vid.currentTime = target;
-          if(playing) vid.play().catch(()=>{});
+          if(playing){ playInitiatedRef.current = true; vid.play().catch(()=>{}); }
         }, {once:true});
         vid.load();
       } else {
@@ -579,9 +583,16 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
 
     // Play / pause / scrub
     if(playing) {
-      if(vid.paused){ vid.currentTime = target; vid.play().catch(()=>{}); }
+      // Guard: only call play() once per play action — vid.play() is async and vid.paused
+      // stays true for several frames, causing multiple seeks and stutters without this.
+      if(!playInitiatedRef.current) {
+        playInitiatedRef.current = true;
+        vid.currentTime = target;
+        vid.play().catch(err => { if(err.name !== "AbortError") console.warn("play():", err); });
+      }
       // else: video is already playing naturally — don't interfere
     } else {
+      playInitiatedRef.current = false;
       if(!vid.paused) vid.pause();
       vid.currentTime = target; // scrubbing while paused
     }
@@ -3350,27 +3361,37 @@ export default function ProCutEditor() {
     localStorage.setItem("procut-assets",JSON.stringify(p));
   },[assets]);
 
-  // Playback tick — rAF + real delta time prevents the drift/glitch of setInterval
+  // Playback tick — rAF loop with 24fps state throttle.
+  // RAF fires at 60fps (smooth canvas proxy), but setPlayhead is called at most 24fps
+  // to prevent 60 React re-renders/sec on the large ProEditor component tree.
   useEffect(()=>{
     if(!playing) return;
     let rafId: number;
     let lastTime = performance.now();
+    let accumulator = 0;
+    const FRAME = 1 / 24;
 
     const tick = () => {
       const now = performance.now();
-      // clamp delta to 100ms so a backgrounded tab can't cause a huge jump
       const delta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
+      accumulator += delta;
 
-      setPlayhead(p => {
-        const next = p + delta;
-        if (next >= duration) {
-          cancelAnimationFrame(rafId);
-          setPlaying(false);
-          return 0;
-        }
-        return next;
-      });
+      if (accumulator >= FRAME) {
+        const frames = Math.floor(accumulator / FRAME);
+        accumulator -= frames * FRAME;
+        const advance = frames * FRAME;
+
+        setPlayhead(p => {
+          const next = p + advance;
+          if (next >= duration) {
+            cancelAnimationFrame(rafId);
+            setPlaying(false);
+            return 0;
+          }
+          return next;
+        });
+      }
 
       rafId = requestAnimationFrame(tick);
     };
