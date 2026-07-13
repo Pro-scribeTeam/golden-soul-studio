@@ -485,12 +485,13 @@ function ToolsPanel({ tool, setTool, onTab, onImport }: {
 }
 
 // ── ZONE 3: Preview Window ─────────────────────────────────────────────────
-function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration, onToggleMax, isMaximized }: {
+function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration, onToggleMax, isMaximized, videoElRef }: {
   clips:Clip[];
   playhead:number; setPlayhead:(t:number)=>void;
   playing:boolean; setPlaying:(v:boolean)=>void;
   narrative:boolean; duration:number;
   onToggleMax:()=>void; isMaximized:boolean;
+  videoElRef?:React.MutableRefObject<HTMLVideoElement|null>;
 }) {
   const wRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -498,6 +499,13 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   // Prevents calling vid.play() on every RAF frame before the video actually starts;
   // reset whenever playing becomes false or the clip url changes.
   const playInitiatedRef = useRef(false);
+  // Pending loadedmetadata handler — removed before each source change so a stale
+  // {once:true} listener from a previous URL can't fire on the new source and
+  // seek it to an outdated time (visible jump at clip cuts).
+  const pendingMetaHandlerRef = useRef<(()=>void)|null>(null);
+  // Which clip the element's media time is currently mapped to — lets the sync
+  // effect detect same-source clip transitions (razor cuts) that need a remap.
+  const loadedClipIdRef = useRef<string>("");
   // Per-clip audio elements — one per clip so Music + SFX play simultaneously
   const audioElementsRef   = useRef<Map<string, HTMLAudioElement>>(new Map());
   const loadedAudioUrlsRef = useRef<Map<string, string>>(new Map());
@@ -507,23 +515,38 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const waSourceRef = useRef<MediaElementAudioSourceNode|null>(null);
   const waGainRef   = useRef<GainNode|null>(null);
 
-  // ── Proxy mode: draw video frames onto a low-res canvas instead of
-  // compositing the full-HD video texture every frame. Reduces GPU cost
-  // significantly during editing; export always uses original source URLs.
-  const [proxyMode, setProxyMode] = useState(true);
+  // ── Proxy mode (opt-in): draw video frames onto a low-res canvas instead of
+  // compositing the full-HD video texture every frame. Reduces GPU cost on
+  // constrained machines; export always uses original source URLs.
+  // Defaults to OFF: the direct video element is browser-native compositing —
+  // always smooth and frame-accurate with its own audio. The canvas copy path
+  // proved unreliable on macOS Chrome, which starves frame delivery to
+  // non-composited (hidden) video elements, causing choppy playback and the
+  // picture lagging behind the audio.
+  const [proxyMode, setProxyMode] = useState(false);
   const canvasRef   = useRef<HTMLCanvasElement>(null);
   const proxyRafRef = useRef<number>(-1);
 
   useEffect(()=>{
-    if(!proxyMode){ cancelAnimationFrame(proxyRafRef.current); return; }
+    if(!proxyMode) return;
     const canvas = canvasRef.current;
-    if(!canvas) return;
+    const vid = videoRef.current;
+    if(!canvas || !vid) return;
     const ctx = canvas.getContext("2d");
     if(!ctx) return;
 
-    const draw = ()=>{
-      const vid = videoRef.current;
-      if(vid && vid.readyState >= 2 && vid.videoWidth > 0){
+    // rAF loop gated on currentTime. Deliberately NOT requestVideoFrameCallback
+    // or getVideoPlaybackQuality().totalVideoFrames: both track frame
+    // *presentation*, which browsers throttle to a few fps for videos they
+    // consider invisible (measured ~6fps in Chromium at opacity 0.001) — that
+    // starvation is what made proxy playback choppy. currentTime tracks the
+    // *decode* clock, which never throttles for a playing foreground-tab video,
+    // so drawImage always copies fresh frames; the gate merely skips redraws
+    // while paused.
+    let lastDrawnTime = -1;
+    const loop = ()=>{
+      if(vid.readyState >= 2 && vid.videoWidth > 0 && vid.currentTime !== lastDrawnTime){
+        lastDrawnTime = vid.currentTime;
         // Replicate object-fit:contain letterboxing inside the canvas
         const vAR = vid.videoWidth / vid.videoHeight;
         const cAR = canvas.width / canvas.height;
@@ -534,10 +557,9 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(vid, dx, dy, dw, dh);
       }
-      proxyRafRef.current = requestAnimationFrame(draw);
+      proxyRafRef.current = requestAnimationFrame(loop);
     };
-
-    proxyRafRef.current = requestAnimationFrame(draw);
+    proxyRafRef.current = requestAnimationFrame(loop);
     return ()=>{ cancelAnimationFrame(proxyRafRef.current); };
   },[proxyMode]);
 
@@ -557,6 +579,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     const vid = videoRef.current;
     if(!vid) return;
     const url = activeVideoClip?.url ?? "";
+    const clipId = activeVideoClip?.id ?? "";
     const clipStart = activeVideoClip?.start ?? 0;
     const inPoint = activeVideoClip?.inPoint ?? 0;
     const target = Math.max(0, inPoint + (playhead - clipStart));
@@ -564,14 +587,23 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     // Source changed — reload
     if(loadedVideoUrl.current !== url) {
       loadedVideoUrl.current = url;
+      loadedClipIdRef.current = clipId;
       playInitiatedRef.current = false;
+      // Drop any pending listener from a previous source before wiring a new one
+      if(pendingMetaHandlerRef.current){
+        vid.removeEventListener("loadedmetadata", pendingMetaHandlerRef.current);
+        pendingMetaHandlerRef.current = null;
+      }
       vid.pause();
       if(url) {
         vid.src = url;
-        vid.addEventListener("loadedmetadata", ()=>{
+        const onMeta = ()=>{
+          pendingMetaHandlerRef.current = null;
           vid.currentTime = target;
           if(playing){ playInitiatedRef.current = true; vid.play().catch(()=>{}); }
-        }, {once:true});
+        };
+        pendingMetaHandlerRef.current = onMeta;
+        vid.addEventListener("loadedmetadata", onMeta, {once:true});
         vid.load();
       } else {
         vid.removeAttribute("src");
@@ -579,7 +611,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       }
       return;
     }
-    if(!url) return;
+    if(!url){ loadedClipIdRef.current = clipId; return; }
 
     // Play / pause / scrub
     if(playing) {
@@ -589,6 +621,13 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         playInitiatedRef.current = true;
         vid.currentTime = target;
         vid.play().catch(err => { if(err.name !== "AbortError") console.warn("play():", err); });
+      } else if(loadedClipIdRef.current !== clipId) {
+        // Same source file, different clip (razor splits, rearranged segments):
+        // the element keeps playing its own media time, which is only correct
+        // when the cut is contiguous. Remap to the new clip's inPoint window.
+        // True razor splits are contiguous (|currentTime - target| ≈ 0) so no
+        // seek fires and the cut stays seamless; rearranged cuts seek once.
+        if(Math.abs(vid.currentTime - target) > 0.2) vid.currentTime = target;
       }
       // else: video is already playing naturally — don't interfere
     } else {
@@ -596,6 +635,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       if(!vid.paused) vid.pause();
       vid.currentTime = target; // scrubbing while paused
     }
+    loadedClipIdRef.current = clipId;
   },[playing, playhead, activeVideoClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync audio-only clips
@@ -686,7 +726,10 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       }
       if(!url) continue;
       if(playing){
-        if(aud.paused&&!loadingAudioIdsRef.current.has(clip.id)){ aud.currentTime=target; aud.play().catch(()=>{}); }
+        // !aud.ended guard: when the media is shorter than the clip, 'ended' flips
+        // paused=true — without the guard every tick re-seeks past the end and calls
+        // play() again, a 24x/sec seek storm that stutters the whole preview.
+        if(aud.paused&&!aud.ended&&!loadingAudioIdsRef.current.has(clip.id)){ aud.currentTime=target; aud.play().catch(()=>{}); }
       } else {
         if(!aud.paused) aud.pause();
         aud.currentTime=target;
@@ -708,6 +751,33 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     vid.volume=Math.min(1,(activeVideoClip?.volume??100)/100);
     if(!isDetachedAudio) vid.muted=activeVideoClip?.muted??false;
   },[activeVideoClip?.volume,activeVideoClip?.muted,isDetachedAudio]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Drift correction: the playhead advances on wall-clock time while the video
+  // plays on its own decode clock — left alone they drift apart, so cuts and
+  // transitions fire early/late and each clip switch lands with a visible jump.
+  // While a video clip is actively playing, treat vid.currentTime as the
+  // authoritative clock and nudge the playhead back whenever drift exceeds 80ms.
+  const activeClipRef = useRef(activeVideoClip);
+  activeClipRef.current = activeVideoClip;
+  const playheadRef = useRef(playhead);
+  playheadRef.current = playhead;
+  useEffect(()=>{
+    if(!playing) return;
+    const iv = setInterval(()=>{
+      const vid = videoRef.current;
+      const clip = activeClipRef.current;
+      if(!vid || !clip || vid.paused || vid.seeking || vid.readyState < 2) return;
+      // Never correct against a video still mapped to a different clip — the
+      // sync effect must remap (seek) first or we'd snap to a bogus position.
+      if(loadedClipIdRef.current !== clip.id) return;
+      const speed = clip.speed ? clip.speed/100 : 1;
+      const videoClock = clip.start + (vid.currentTime - (clip.inPoint??0)) / speed;
+      // Only correct while the video clock still falls inside this clip's window
+      if(videoClock < clip.start || videoClock >= clip.start + clip.duration) return;
+      if(Math.abs(videoClock - playheadRef.current) > 0.08) setPlayhead(videoClock);
+    }, 250);
+    return ()=>clearInterval(iv);
+  },[playing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const videoFilter = getClipCSSFilter(activeVideoClip);
   const videoOpacity = (activeVideoClip?.opacity ?? 100) / 100;
@@ -765,22 +835,25 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       {/* Canvas */}
       <div style={{flex:1, background:"#050505", position:"relative", overflow:"hidden"}}>
         {/* Video element — always mounted, shown when active video clip exists */}
-        <video ref={videoRef} preload="auto" playsInline
+        <video ref={el=>{ videoRef.current=el; if(videoElRef) videoElRef.current=el; }} preload="auto" playsInline
           style={{
             position:"absolute", inset:0, width:"100%", height:"100%",
             objectFit:"contain", background:"#000",
             display: hasVideo ? "block" : "none",
-            visibility: proxyMode && hasVideo ? "hidden" : "visible",
             filter: videoFilter || undefined,
-            opacity: transVideoOpacity,
+            // In proxy mode the opaque canvas covers the video; near-zero opacity
+            // (NOT visibility:hidden) keeps the element composited so the browser
+            // never throttles its frame delivery to the canvas draw loop.
+            opacity: proxyMode && hasVideo ? 0.001 : transVideoOpacity,
             transform: transTransform || undefined,
             clipPath: transClipPath || undefined,
           }}
         />
-        {/* Proxy canvas — low-res 854×480 composite drawn via RAF when proxyMode=true */}
+        {/* Proxy canvas — low-res 854×480 composite drawn per video frame when proxyMode=true */}
         <canvas ref={canvasRef} width={854} height={480}
           style={{
             position:"absolute", inset:0, width:"100%", height:"100%",
+            objectFit:"contain", background:"#000",
             display: proxyMode && hasVideo ? "block" : "none",
             filter: videoFilter || undefined,
             opacity: transVideoOpacity,
@@ -954,7 +1027,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         {Array.from({length:100}).map((_,i)=>(
           <div key={i} style={{
             position:"absolute", left:`${i}%`, bottom:"50%",
-            width:2, height:`${15+Math.abs(Math.sin(i*0.7+1)*55)}%`,
+            width:2, height:`${(15+Math.abs(Math.sin(i*0.7+1)*55)).toFixed(2)}%`,
             transform:"translateY(50%)", borderRadius:1,
             background: i/100 < playhead/duration ? C.gold : C.teal,
             opacity:0.55,
@@ -2708,7 +2781,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             {Array.from({length:Math.floor(clip.duration*zoom/4)}).map((_,i)=>(
                               <div key={i} style={{
                                 width:1.5, marginRight:1, borderRadius:1,
-                                height:`${15+Math.abs(Math.sin(i*0.6)*60)}%`,
+                                height:`${(15+Math.abs(Math.sin(i*0.6)*60)).toFixed(2)}%`,
                                 background:C.teal, opacity:0.6,
                               }}/>
                             ))}
@@ -3288,6 +3361,10 @@ export default function ProCutEditor() {
   const [tracks, setTracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
+  // Live handles for the playback tick's video gate (avoids stale closures)
+  const previewVideoRef=useRef<HTMLVideoElement|null>(null);
+  const clipsRef=useRef<Clip[]>(clips);
+  clipsRef.current=clips;
 
   const saveProject=useCallback(()=>{
     // Strip ephemeral blob:// URLs — mediaKey is used to restore them on import
@@ -3364,11 +3441,19 @@ export default function ProCutEditor() {
   // Playback tick — rAF loop with 24fps state throttle.
   // RAF fires at 60fps (smooth canvas proxy), but setPlayhead is called at most 24fps
   // to prevent 60 React re-renders/sec on the large ProEditor component tree.
+  //
+  // Video gate: while the clip under the playhead is a video that is still
+  // starting, seeking, or buffering, the playhead HOLDS instead of advancing on
+  // wall-clock time. Without this the playhead runs ahead during startup
+  // latency / stalls and the drift correction then snaps it backwards — at a
+  // cut between two sources that snap re-crosses the boundary and reloads the
+  // previous clip, producing a start-stop-freeze oscillation.
   useEffect(()=>{
     if(!playing) return;
     let rafId: number;
     let lastTime = performance.now();
     let accumulator = 0;
+    let stallFrames = 0;
     const FRAME = 1 / 24;
 
     const tick = () => {
@@ -3383,6 +3468,18 @@ export default function ProCutEditor() {
         const advance = frames * FRAME;
 
         setPlayhead(p => {
+          // Hold while the active video clip can't deliver frames yet.
+          const vid = previewVideoRef.current;
+          const clip = clipsRef.current
+            .filter(c => c.type==="video" && !!c.url && c.start<=p && c.start+c.duration>p)
+            .at(-1);
+          if (clip && vid) {
+            const stalled = !vid.ended && (vid.paused || vid.seeking || vid.readyState < 3);
+            // Failsafe: never hold longer than ~2s (e.g. play() rejected) —
+            // fall back to wall-clock advance rather than freezing forever.
+            if (stalled && stallFrames < 48) { stallFrames++; return p; }
+          }
+          stallFrames = 0;
           const next = p + advance;
           if (next >= duration) {
             cancelAnimationFrame(rafId);
@@ -3507,6 +3604,7 @@ export default function ProCutEditor() {
       if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.code==="KeyZ"){ e.preventDefault(); undo(); }
       if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.code==="KeyZ"){ e.preventDefault(); redo(); }
       if(e.code==="Delete"||e.code==="Backspace"){ deleteClip(); }
+      if(e.code==="Escape"){ setShowExport(false); setShowSettings(false); }
     };
     window.addEventListener("keydown",handler);
     return ()=>window.removeEventListener("keydown",handler);
@@ -3564,6 +3662,7 @@ export default function ProCutEditor() {
               narrative={narrative} duration={duration}
               onToggleMax={()=>setPreviewMax(p=>!p)}
               isMaximized={previewMax}
+              videoElRef={previewVideoRef}
             />
           </div>
           {/* Horizontal resize handle (drag left edge of inspector) */}
