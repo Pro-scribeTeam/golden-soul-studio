@@ -485,12 +485,13 @@ function ToolsPanel({ tool, setTool, onTab, onImport }: {
 }
 
 // ── ZONE 3: Preview Window ─────────────────────────────────────────────────
-function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration, onToggleMax, isMaximized }: {
+function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narrative, duration, onToggleMax, isMaximized, videoElRef }: {
   clips:Clip[];
   playhead:number; setPlayhead:(t:number)=>void;
   playing:boolean; setPlaying:(v:boolean)=>void;
   narrative:boolean; duration:number;
   onToggleMax:()=>void; isMaximized:boolean;
+  videoElRef?:React.MutableRefObject<HTMLVideoElement|null>;
 }) {
   const wRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -818,7 +819,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       {/* Canvas */}
       <div style={{flex:1, background:"#050505", position:"relative", overflow:"hidden"}}>
         {/* Video element — always mounted, shown when active video clip exists */}
-        <video ref={videoRef} preload="auto" playsInline
+        <video ref={el=>{ videoRef.current=el; if(videoElRef) videoElRef.current=el; }} preload="auto" playsInline
           style={{
             position:"absolute", inset:0, width:"100%", height:"100%",
             objectFit:"contain", background:"#000",
@@ -3344,6 +3345,10 @@ export default function ProCutEditor() {
   const [tracks, setTracks]=useState<Track[]>(INIT_TRACKS);
   const [clips,setClips]=useState<Clip[]>([]);
   const duration=45;
+  // Live handles for the playback tick's video gate (avoids stale closures)
+  const previewVideoRef=useRef<HTMLVideoElement|null>(null);
+  const clipsRef=useRef<Clip[]>(clips);
+  clipsRef.current=clips;
 
   const saveProject=useCallback(()=>{
     // Strip ephemeral blob:// URLs — mediaKey is used to restore them on import
@@ -3420,11 +3425,19 @@ export default function ProCutEditor() {
   // Playback tick — rAF loop with 24fps state throttle.
   // RAF fires at 60fps (smooth canvas proxy), but setPlayhead is called at most 24fps
   // to prevent 60 React re-renders/sec on the large ProEditor component tree.
+  //
+  // Video gate: while the clip under the playhead is a video that is still
+  // starting, seeking, or buffering, the playhead HOLDS instead of advancing on
+  // wall-clock time. Without this the playhead runs ahead during startup
+  // latency / stalls and the drift correction then snaps it backwards — at a
+  // cut between two sources that snap re-crosses the boundary and reloads the
+  // previous clip, producing a start-stop-freeze oscillation.
   useEffect(()=>{
     if(!playing) return;
     let rafId: number;
     let lastTime = performance.now();
     let accumulator = 0;
+    let stallFrames = 0;
     const FRAME = 1 / 24;
 
     const tick = () => {
@@ -3439,6 +3452,18 @@ export default function ProCutEditor() {
         const advance = frames * FRAME;
 
         setPlayhead(p => {
+          // Hold while the active video clip can't deliver frames yet.
+          const vid = previewVideoRef.current;
+          const clip = clipsRef.current
+            .filter(c => c.type==="video" && !!c.url && c.start<=p && c.start+c.duration>p)
+            .at(-1);
+          if (clip && vid) {
+            const stalled = !vid.ended && (vid.paused || vid.seeking || vid.readyState < 3);
+            // Failsafe: never hold longer than ~2s (e.g. play() rejected) —
+            // fall back to wall-clock advance rather than freezing forever.
+            if (stalled && stallFrames < 48) { stallFrames++; return p; }
+          }
+          stallFrames = 0;
           const next = p + advance;
           if (next >= duration) {
             cancelAnimationFrame(rafId);
@@ -3621,6 +3646,7 @@ export default function ProCutEditor() {
               narrative={narrative} duration={duration}
               onToggleMax={()=>setPreviewMax(p=>!p)}
               isMaximized={previewMax}
+              videoElRef={previewVideoRef}
             />
           </div>
           {/* Horizontal resize handle (drag left edge of inspector) */}
