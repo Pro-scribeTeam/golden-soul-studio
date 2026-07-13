@@ -954,7 +954,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         {Array.from({length:100}).map((_,i)=>(
           <div key={i} style={{
             position:"absolute", left:`${i}%`, bottom:"50%",
-            width:2, height:`${15+Math.abs(Math.sin(i*0.7+1)*55)}%`,
+            width:2, height:`${(15+Math.abs(Math.sin(i*0.7+1)*55)).toFixed(2)}%`,
             transform:"translateY(50%)", borderRadius:1,
             background: i/100 < playhead/duration ? C.gold : C.teal,
             opacity:0.55,
@@ -2708,7 +2708,7 @@ function Timeline({ tracks, clips, setClips, tool, playhead, setPlayhead, zoom, 
                             {Array.from({length:Math.floor(clip.duration*zoom/4)}).map((_,i)=>(
                               <div key={i} style={{
                                 width:1.5, marginRight:1, borderRadius:1,
-                                height:`${15+Math.abs(Math.sin(i*0.6)*60)}%`,
+                                height:`${(15+Math.abs(Math.sin(i*0.6)*60)).toFixed(2)}%`,
                                 background:C.teal, opacity:0.6,
                               }}/>
                             ))}
@@ -3507,6 +3507,7 @@ export default function ProCutEditor() {
       if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.code==="KeyZ"){ e.preventDefault(); undo(); }
       if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.code==="KeyZ"){ e.preventDefault(); redo(); }
       if(e.code==="Delete"||e.code==="Backspace"){ deleteClip(); }
+      if(e.code==="Escape"){ setShowExport(false); setShowSettings(false); }
     };
     window.addEventListener("keydown",handler);
     return ()=>window.removeEventListener("keydown",handler);
