@@ -511,10 +511,15 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   const waSourceRef = useRef<MediaElementAudioSourceNode|null>(null);
   const waGainRef   = useRef<GainNode|null>(null);
 
-  // ── Proxy mode: draw video frames onto a low-res canvas instead of
-  // compositing the full-HD video texture every frame. Reduces GPU cost
-  // significantly during editing; export always uses original source URLs.
-  const [proxyMode, setProxyMode] = useState(true);
+  // ── Proxy mode (opt-in): draw video frames onto a low-res canvas instead of
+  // compositing the full-HD video texture every frame. Reduces GPU cost on
+  // constrained machines; export always uses original source URLs.
+  // Defaults to OFF: the direct video element is browser-native compositing —
+  // always smooth and frame-accurate with its own audio. The canvas copy path
+  // proved unreliable on macOS Chrome, which starves frame delivery to
+  // non-composited (hidden) video elements, causing choppy playback and the
+  // picture lagging behind the audio.
+  const [proxyMode, setProxyMode] = useState(false);
   const canvasRef   = useRef<HTMLCanvasElement>(null);
   const proxyRafRef = useRef<number>(-1);
 
@@ -526,8 +531,18 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     const ctx = canvas.getContext("2d");
     if(!ctx) return;
 
-    const draw = ()=>{
-      if(vid.readyState >= 2 && vid.videoWidth > 0){
+    // rAF loop gated on currentTime. Deliberately NOT requestVideoFrameCallback
+    // or getVideoPlaybackQuality().totalVideoFrames: both track frame
+    // *presentation*, which browsers throttle to a few fps for videos they
+    // consider invisible (measured ~6fps in Chromium at opacity 0.001) — that
+    // starvation is what made proxy playback choppy. currentTime tracks the
+    // *decode* clock, which never throttles for a playing foreground-tab video,
+    // so drawImage always copies fresh frames; the gate merely skips redraws
+    // while paused.
+    let lastDrawnTime = -1;
+    const loop = ()=>{
+      if(vid.readyState >= 2 && vid.videoWidth > 0 && vid.currentTime !== lastDrawnTime){
+        lastDrawnTime = vid.currentTime;
         // Replicate object-fit:contain letterboxing inside the canvas
         const vAR = vid.videoWidth / vid.videoHeight;
         const cAR = canvas.width / canvas.height;
@@ -538,40 +553,8 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(vid, dx, dy, dw, dh);
       }
+      proxyRafRef.current = requestAnimationFrame(loop);
     };
-
-    // Draw once per *presented video frame* (requestVideoFrameCallback) instead of
-    // once per display refresh (rAF). 24fps video = 24 draws/sec instead of 60+,
-    // each perfectly aligned with a freshly decoded frame — no mid-frame tearing,
-    // and far less main-thread contention with React's playback re-renders.
-    type VFCVideo = HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb:()=>void)=>number;
-      cancelVideoFrameCallback?: (h:number)=>void;
-    };
-    const vfcVid = vid as VFCVideo;
-    let cancelled = false;
-
-    if(vfcVid.requestVideoFrameCallback){
-      const onFrame = ()=>{
-        if(cancelled) return;
-        draw();
-        proxyRafRef.current = vfcVid.requestVideoFrameCallback!(onFrame);
-      };
-      proxyRafRef.current = vfcVid.requestVideoFrameCallback(onFrame);
-      // rVFC only fires on new frames — also repaint after seeks while paused
-      // (scrubbing) and on first data so the canvas never shows a stale frame.
-      vid.addEventListener("seeked", draw);
-      vid.addEventListener("loadeddata", draw);
-      return ()=>{
-        cancelled = true;
-        vfcVid.cancelVideoFrameCallback?.(proxyRafRef.current);
-        vid.removeEventListener("seeked", draw);
-        vid.removeEventListener("loadeddata", draw);
-      };
-    }
-
-    // Fallback for browsers without requestVideoFrameCallback
-    const loop = ()=>{ draw(); proxyRafRef.current = requestAnimationFrame(loop); };
     proxyRafRef.current = requestAnimationFrame(loop);
     return ()=>{ cancelAnimationFrame(proxyRafRef.current); };
   },[proxyMode]);
@@ -840,9 +823,11 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
             position:"absolute", inset:0, width:"100%", height:"100%",
             objectFit:"contain", background:"#000",
             display: hasVideo ? "block" : "none",
-            visibility: proxyMode && hasVideo ? "hidden" : "visible",
             filter: videoFilter || undefined,
-            opacity: transVideoOpacity,
+            // In proxy mode the opaque canvas covers the video; near-zero opacity
+            // (NOT visibility:hidden) keeps the element composited so the browser
+            // never throttles its frame delivery to the canvas draw loop.
+            opacity: proxyMode && hasVideo ? 0.001 : transVideoOpacity,
             transform: transTransform || undefined,
             clipPath: transClipPath || undefined,
           }}
