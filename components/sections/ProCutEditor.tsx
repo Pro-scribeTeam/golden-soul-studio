@@ -503,6 +503,9 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
   // {once:true} listener from a previous URL can't fire on the new source and
   // seek it to an outdated time (visible jump at clip cuts).
   const pendingMetaHandlerRef = useRef<(()=>void)|null>(null);
+  // Which clip the element's media time is currently mapped to — lets the sync
+  // effect detect same-source clip transitions (razor cuts) that need a remap.
+  const loadedClipIdRef = useRef<string>("");
   // Per-clip audio elements — one per clip so Music + SFX play simultaneously
   const audioElementsRef   = useRef<Map<string, HTMLAudioElement>>(new Map());
   const loadedAudioUrlsRef = useRef<Map<string, string>>(new Map());
@@ -576,6 +579,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     const vid = videoRef.current;
     if(!vid) return;
     const url = activeVideoClip?.url ?? "";
+    const clipId = activeVideoClip?.id ?? "";
     const clipStart = activeVideoClip?.start ?? 0;
     const inPoint = activeVideoClip?.inPoint ?? 0;
     const target = Math.max(0, inPoint + (playhead - clipStart));
@@ -583,6 +587,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
     // Source changed — reload
     if(loadedVideoUrl.current !== url) {
       loadedVideoUrl.current = url;
+      loadedClipIdRef.current = clipId;
       playInitiatedRef.current = false;
       // Drop any pending listener from a previous source before wiring a new one
       if(pendingMetaHandlerRef.current){
@@ -606,7 +611,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       }
       return;
     }
-    if(!url) return;
+    if(!url){ loadedClipIdRef.current = clipId; return; }
 
     // Play / pause / scrub
     if(playing) {
@@ -616,6 +621,13 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
         playInitiatedRef.current = true;
         vid.currentTime = target;
         vid.play().catch(err => { if(err.name !== "AbortError") console.warn("play():", err); });
+      } else if(loadedClipIdRef.current !== clipId) {
+        // Same source file, different clip (razor splits, rearranged segments):
+        // the element keeps playing its own media time, which is only correct
+        // when the cut is contiguous. Remap to the new clip's inPoint window.
+        // True razor splits are contiguous (|currentTime - target| ≈ 0) so no
+        // seek fires and the cut stays seamless; rearranged cuts seek once.
+        if(Math.abs(vid.currentTime - target) > 0.2) vid.currentTime = target;
       }
       // else: video is already playing naturally — don't interfere
     } else {
@@ -623,6 +635,7 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       if(!vid.paused) vid.pause();
       vid.currentTime = target; // scrubbing while paused
     }
+    loadedClipIdRef.current = clipId;
   },[playing, playhead, activeVideoClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync audio-only clips
@@ -754,6 +767,9 @@ function PreviewWindow({ clips, playhead, setPlayhead, playing, setPlaying, narr
       const vid = videoRef.current;
       const clip = activeClipRef.current;
       if(!vid || !clip || vid.paused || vid.seeking || vid.readyState < 2) return;
+      // Never correct against a video still mapped to a different clip — the
+      // sync effect must remap (seek) first or we'd snap to a bogus position.
+      if(loadedClipIdRef.current !== clip.id) return;
       const speed = clip.speed ? clip.speed/100 : 1;
       const videoClock = clip.start + (vid.currentTime - (clip.inPoint??0)) / speed;
       // Only correct while the video clock still falls inside this clip's window
