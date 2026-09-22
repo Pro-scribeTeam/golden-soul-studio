@@ -18,6 +18,7 @@ const T2V_MODEL_MAP: Record<string, string> = {
 const I2V_MODEL_MAP: Record<string, string> = {
   "kling-i2v":       "kwaivgi/kling-v3.0-std/image-to-video",
   "minimax-h3-i2v":  "wavespeed-ai/minimax-h3/image-to-video",
+  "wan3-i2v":        "alibaba/wan-3.0/image-to-video",
   "wan-i2v":         "alibaba/wan-2.7/image-to-video",
   "ltx-i2v":       "lightricks/ltx-video/image-to-video",
   "seedance-i2v":  "bytedance/seedance-2.0/image-to-video",

@@ -14,6 +14,7 @@ import { uploadFileDirect } from "@/lib/uploadDirect";
 const I2V_MODELS = [
   { value: "kling-i2v",    label: "Kling 3.0 — Best Character Consistency ★", group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "minimax-h3-i2v", label: "MiniMax H3 — Native Audio + Video ★",   group: "— BEST FOR IMAGE TO VIDEO —" },
+  { value: "wan3-i2v",     label: "Wan 3.0 — 30s Cinematic",                 group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "wan-i2v",      label: "Wan 2.7 — Fast & Reliable",                group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "ltx-i2v",      label: "LTX Video — Fastest Iterations",           group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "seedance-i2v", label: "Seedance 2.0 — Cinematic Quality",         group: "— BEST FOR IMAGE TO VIDEO —" },
