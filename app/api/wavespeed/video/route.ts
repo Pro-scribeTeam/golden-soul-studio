@@ -49,10 +49,12 @@ export async function POST(req: NextRequest) {
     const resolution = RESOLUTION_MAP[quality as string] || "720p";
     const dur = Math.min(15, Math.max(4, Number(duration) || 5));
 
-    // Only Veo 3 supports enable_audio — Seedance and others do not accept this param
+    // Models that support enable_audio — others do not accept this param
     const AUDIO_MODELS = new Set([
       "google/veo-3/text-to-video",
       "google/veo-3/image-to-video",
+      "wavespeed-ai/minimax-h3/text-to-video",
+      "wavespeed-ai/minimax-h3/image-to-video",
     ]);
 
     const input: Record<string, unknown> = {
