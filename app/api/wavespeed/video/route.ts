@@ -3,19 +3,22 @@ import { callWavespeed } from "@/lib/wavespeed";
 
 // Verified text-to-video model IDs
 const T2V_MODEL_MAP: Record<string, string> = {
-  "kwaivgi/kling-v3":               "bytedance/seedance-2.0/text-to-video",
-  "minimax/video-01":               "bytedance/seedance-2.0/text-to-video",
-  "bytedance/seedance-v1-lite":     "bytedance/seedance-2.0/text-to-video",
-  "google/veo-3":                   "google/veo-3/text-to-video",
-  "lightricks/ltx-video-0.9.7":    "bytedance/seedance-2.0-fast/text-to-video",
-  "runwayml/gen4-turbo":            "bytedance/seedance-2.0-fast/text-to-video",
-  "wavespeed-ai/wan-v2.2-t2v-480p": "bytedance/seedance-2.0-fast/text-to-video",
+  "kwaivgi/kling-v3":                   "bytedance/seedance-2.0/text-to-video",
+  "wavespeed-ai/minimax-h3":            "wavespeed-ai/minimax-h3/text-to-video",
+  "minimax/video-01":                   "bytedance/seedance-2.0/text-to-video",
+  "bytedance/seedance-v1-lite":         "bytedance/seedance-2.0/text-to-video",
+  "google/veo-3":                       "google/veo-3/text-to-video",
+  "lightricks/ltx-video-0.9.7":        "bytedance/seedance-2.0-fast/text-to-video",
+  "runwayml/gen4-turbo":                "bytedance/seedance-2.0-fast/text-to-video",
+  "alibaba/wan-3.0":                    "alibaba/wan-3.0/text-to-video",
+  "wavespeed-ai/wan-v2.2-t2v-480p":    "bytedance/seedance-2.0-fast/text-to-video",
 };
 
 // Image-to-video model IDs (June 2026)
 const I2V_MODEL_MAP: Record<string, string> = {
-  "kling-i2v":     "kwaivgi/kling-v3.0-std/image-to-video",
-  "wan-i2v":       "alibaba/wan-2.7/image-to-video",
+  "kling-i2v":       "kwaivgi/kling-v3.0-std/image-to-video",
+  "minimax-h3-i2v":  "wavespeed-ai/minimax-h3/image-to-video",
+  "wan-i2v":         "alibaba/wan-2.7/image-to-video",
   "ltx-i2v":       "lightricks/ltx-video/image-to-video",
   "seedance-i2v":  "bytedance/seedance-2.0/image-to-video",
   "veo-i2v":       "google/veo-3/image-to-video",
@@ -45,11 +48,18 @@ export async function POST(req: NextRequest) {
     const resolution = RESOLUTION_MAP[quality as string] || "720p";
     const dur = Math.min(15, Math.max(4, Number(duration) || 5));
 
+    // Only Veo 3 supports enable_audio — Seedance and others do not accept this param
+    const AUDIO_MODELS = new Set([
+      "google/veo-3/text-to-video",
+      "google/veo-3/image-to-video",
+    ]);
+
     const input: Record<string, unknown> = {
       prompt,
       duration: dur,
       resolution,
       aspect_ratio: aspectRatio || "16:9",
+      ...(AUDIO_MODELS.has(modelId) ? { enable_audio: true } : {}),
     };
 
     if (isI2V) {

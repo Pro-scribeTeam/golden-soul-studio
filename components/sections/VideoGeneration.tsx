@@ -13,6 +13,7 @@ import { uploadFileDirect } from "@/lib/uploadDirect";
 
 const I2V_MODELS = [
   { value: "kling-i2v",    label: "Kling 3.0 — Best Character Consistency ★", group: "— BEST FOR IMAGE TO VIDEO —" },
+  { value: "minimax-h3-i2v", label: "MiniMax H3 — Native Audio + Video ★",   group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "wan-i2v",      label: "Wan 2.7 — Fast & Reliable",                group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "ltx-i2v",      label: "LTX Video — Fastest Iterations",           group: "— BEST FOR IMAGE TO VIDEO —" },
   { value: "seedance-i2v", label: "Seedance 2.0 — Cinematic Quality",         group: "— BEST FOR IMAGE TO VIDEO —" },
@@ -20,13 +21,15 @@ const I2V_MODELS = [
 ];
 
 const T2V_MODELS = [
-  { value: "kwaivgi/kling-v3",             label: "Kling 3.0 — Cinematic 4K",           group: "— OR GENERATE FROM TEXT —" },
-  { value: "minimax/video-01",             label: "Sora 2 — Complex Scenes",             group: "— OR GENERATE FROM TEXT —" },
-  { value: "bytedance/seedance-v1-lite",   label: "Seedance 2.0 — Latest Cinematic",     group: "— OR GENERATE FROM TEXT —" },
-  { value: "google/veo-3",                 label: "Veo 3 — Native Audio + Video ★",      group: "— OR GENERATE FROM TEXT —" },
-  { value: "lightricks/ltx-video-0.9.7",  label: "LTX Video 2.3 — Fastest",             group: "— OR GENERATE FROM TEXT —" },
-  { value: "runwayml/gen4-turbo",          label: "Runway Gen-4 — Character Control",    group: "— OR GENERATE FROM TEXT —" },
-  { value: "wavespeed-ai/wan-v2.2-t2v-480p", label: "Wan 2.2 — Budget Fast",            group: "— OR GENERATE FROM TEXT —" },
+  { value: "kwaivgi/kling-v3",                 label: "Kling 3.0 — Cinematic 4K",           group: "— OR GENERATE FROM TEXT —" },
+  { value: "wavespeed-ai/minimax-h3",          label: "MiniMax H3 — Native Audio + Video ★", group: "— OR GENERATE FROM TEXT —" },
+  { value: "minimax/video-01",                 label: "Sora 2 — Complex Scenes",             group: "— OR GENERATE FROM TEXT —" },
+  { value: "bytedance/seedance-v1-lite",       label: "Seedance 2.0 — Latest Cinematic",     group: "— OR GENERATE FROM TEXT —" },
+  { value: "google/veo-3",                     label: "Veo 3 — Native Audio + Video ★",      group: "— OR GENERATE FROM TEXT —" },
+  { value: "lightricks/ltx-video-0.9.7",      label: "LTX Video 2.3 — Fastest",             group: "— OR GENERATE FROM TEXT —" },
+  { value: "runwayml/gen4-turbo",              label: "Runway Gen-4 — Character Control",    group: "— OR GENERATE FROM TEXT —" },
+  { value: "alibaba/wan-3.0",                  label: "Wan 3.0 — 30s Cinematic",             group: "— OR GENERATE FROM TEXT —" },
+  { value: "wavespeed-ai/wan-v2.2-t2v-480p",  label: "Wan 2.2 — Budget Fast",               group: "— OR GENERATE FROM TEXT —" },
 ];
 
 const CAMERA_MOVES = [
@@ -140,9 +143,10 @@ interface UploadZoneProps {
   onFile: (file: File) => void;
   onUrlPaste: (url: string) => void;
   onClear: () => void;
+  label?: string;
 }
 
-function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, onClear }: UploadZoneProps) {
+function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, onClear, label = "starting" }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [showUrl, setShowUrl] = useState(false);
@@ -158,7 +162,7 @@ function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, on
   if (preview || imageUrl) {
     return (
       <div className="relative rounded-xl overflow-hidden border border-[#C9A84C44]">
-        <img src={preview || imageUrl} alt="Starting frame" className="w-full object-cover max-h-48" />
+        <img src={preview || imageUrl} alt={`${label} frame`} className="w-full object-cover max-h-48" />
         <button
           onClick={onClear}
           className="absolute top-2 right-2 p-1.5 bg-[#0A0A0FCC] rounded-full text-[#F5F0E8] hover:bg-[#0A0A0F] transition-colors"
@@ -168,7 +172,7 @@ function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, on
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#0A0A0F] to-transparent px-3 py-2 flex items-center gap-2">
           <CheckCircle size={12} className="text-green-400" />
           <span className="text-[11px] font-body text-green-400">
-            {imageUrl ? "Image loaded as starting frame" : "Uploading..."}
+            {imageUrl ? `Image loaded as ${label} frame` : "Uploading..."}
           </span>
         </div>
       </div>
@@ -183,7 +187,7 @@ function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, on
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
-          dragOver ? "border-[#C9A84C] bg-[#C9A84C0D]" : "border-[#C9A84C22] bg-[#111118] hover:border-[#C9A84C44]"
+          dragOver ? "border-[#C9A84C] bg-[#C9A84C0D]" : "border-[#C9A84C22] bg-[#0A0A0F] hover:border-[#C9A84C44]"
         }`}
       >
         {uploading ? (
@@ -209,7 +213,7 @@ function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, on
             onKeyDown={(e) => { if (e.key === "Enter" && urlVal.trim()) { onUrlPaste(urlVal.trim()); setShowUrl(false); setUrlVal(""); }}}
             placeholder="https://..."
             autoFocus
-            className="flex-1 px-3 py-2 bg-[#111118] border border-[#C9A84C33] rounded-lg text-sm text-[#F5F0E8] focus:outline-none focus:border-[#C9A84C]"
+            className="flex-1 px-3 py-2 bg-[#0A0A0F] border border-[#C9A84C33] rounded-lg text-sm text-[#F5F0E8] focus:outline-none focus:border-[#C9A84C]"
           />
           <button onClick={() => { if (urlVal.trim()) { onUrlPaste(urlVal.trim()); setShowUrl(false); setUrlVal(""); }}} className="px-3 py-2 bg-[#C9A84C] text-[#0A0A0F] rounded-lg text-xs font-body font-semibold">Use</button>
           <button onClick={() => setShowUrl(false)} className="px-2 text-[#F5F0E844] text-xs">✕</button>
@@ -226,7 +230,7 @@ function VideoImageUpload({ imageUrl, preview, uploading, onFile, onUrlPaste, on
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function VideoGeneration() {
-  const [model, setModel]           = useState("kling-i2v");
+  const [model, setModel]           = useState("kwaivgi/kling-v3");
   const [prompt, setPrompt]         = useState("");
   const [cameraMove, setCameraMove] = useState("static");
   const [duration, setDuration]     = useState(5);
@@ -249,13 +253,14 @@ export default function VideoGeneration() {
   const [result, setResult]     = useState<{ url: string } | null>(null);
   const [error, setError]       = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
 
   const hasImage = Boolean(imageUrl);
 
   // Pre-load image / prompt from localStorage
   useEffect(() => {
     const img = localStorage.getItem("gss_video_image");
-    if (img) { setImageUrl(img); setImagePreview(img); setModel("kling-i2v"); localStorage.removeItem("gss_video_image"); }
+    if (img) { setImageUrl(img); setImagePreview(img); localStorage.removeItem("gss_video_image"); }
     const pmt = localStorage.getItem("gss_video_prompt");
     if (pmt) { setPrompt(pmt); localStorage.removeItem("gss_video_prompt"); }
   }, []);
@@ -267,7 +272,6 @@ export default function VideoGeneration() {
     try {
       const url = await uploadFileDirect(file);
       setImageUrl(url);
-      setModel("kling-i2v");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
       setImagePreview("");
@@ -279,7 +283,6 @@ export default function VideoGeneration() {
   const clearImage = () => {
     setImageUrl("");
     setImagePreview("");
-    setModel("kwaivgi/kling-v3");
   };
 
   const uploadEndFile = async (file: File) => {
@@ -308,6 +311,7 @@ export default function VideoGeneration() {
     setError(null);
     setResult(null);
     setCancelled(false);
+    setPendingRequestId(null);
     setProgress(5);
 
     try {
@@ -327,18 +331,21 @@ export default function VideoGeneration() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
+      setPendingRequestId(data.requestId);
       setProgress(20);
 
       let attempts = 0;
-      while (attempts < 60 && !cancelled) {
+      const MAX_ATTEMPTS = 120; // 6 minutes
+      while (attempts < MAX_ATTEMPTS && !cancelled) {
         await new Promise((r) => setTimeout(r, 3000));
         attempts++;
-        setProgress(20 + Math.min(70, attempts * (70 / 60)));
+        setProgress(20 + Math.min(70, attempts * (70 / MAX_ATTEMPTS)));
         const statusRes = await fetch(`/api/wavespeed/status/${data.requestId}`);
         const statusData = await statusRes.json();
-        if (statusData.status === "completed" || statusData.outputs?.length) {
+        if (statusData.status === "completed" || statusData.status === "succeed" || statusData.outputs?.length) {
           setProgress(100);
           setResult({ url: statusData.outputs?.[0] || "" });
+          setPendingRequestId(null);
           await fetch("/api/supabase/save", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -346,7 +353,44 @@ export default function VideoGeneration() {
           });
           break;
         }
-        if (statusData.status === "failed") throw new Error(statusData.error || "Generation failed");
+        if (statusData.status === "failed") { setPendingRequestId(null); throw new Error(statusData.error || "Generation failed"); }
+        // Timeout — job is still running on WaveSpeed, surface a check-again option
+        if (attempts >= MAX_ATTEMPTS) return;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkAgain = async () => {
+    if (!pendingRequestId) return;
+    setLoading(true);
+    setError(null);
+    setProgress(20);
+    try {
+      let attempts = 0;
+      const MAX_ATTEMPTS = 120;
+      while (attempts < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 3000));
+        attempts++;
+        setProgress(20 + Math.min(70, attempts * (70 / MAX_ATTEMPTS)));
+        const statusRes = await fetch(`/api/wavespeed/status/${pendingRequestId}`);
+        const statusData = await statusRes.json();
+        if (statusData.status === "completed" || statusData.status === "succeed" || statusData.outputs?.length) {
+          setProgress(100);
+          setResult({ url: statusData.outputs?.[0] || "" });
+          setPendingRequestId(null);
+          await fetch("/api/supabase/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ section: "video", model, prompt, settings: { duration, quality: QUALITY_LABELS[quality], aspectRatio, colorGrade, cameraMove }, output_url: statusData.outputs?.[0] }),
+          });
+          break;
+        }
+        if (statusData.status === "failed") { setPendingRequestId(null); throw new Error(statusData.error || "Generation failed"); }
+        if (attempts >= MAX_ATTEMPTS) return; // still running, keep button available
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -368,7 +412,7 @@ export default function VideoGeneration() {
       </div>
 
       {/* Start / End Frame Upload */}
-      <div className="bg-[#111118] border border-[#C9A84C22] rounded-xl p-5 space-y-3">
+      <div className="bg-[#0A0A0F] border border-[#C9A84C22] rounded-xl p-5 space-y-3">
         <div className="flex items-center gap-2">
           <label className="text-xs font-body text-[#F5F0E8AA] uppercase tracking-wider">
             Frames <span className="text-[#F5F0E844] normal-case tracking-normal">(optional)</span>
@@ -388,7 +432,7 @@ export default function VideoGeneration() {
               preview={imagePreview}
               uploading={uploadLoading}
               onFile={uploadFile}
-              onUrlPaste={(url) => { setImageUrl(url); setImagePreview(url); setModel("kling-i2v"); }}
+              onUrlPaste={(url) => { setImageUrl(url); setImagePreview(url); }}
               onClear={clearImage}
             />
           </div>
@@ -402,6 +446,7 @@ export default function VideoGeneration() {
               onFile={uploadEndFile}
               onUrlPaste={(url) => { setEndImageUrl(url); setEndImagePreview(url); }}
               onClear={clearEndImage}
+              label="ending"
             />
           </div>
         </div>
@@ -456,7 +501,7 @@ export default function VideoGeneration() {
               {ASPECT_RATIOS.map((ratio) => (
                 <button key={ratio} onClick={() => setAspectRatio(ratio)}
                   className={`px-3 py-2 rounded-lg text-sm font-body font-medium transition-all ${
-                    aspectRatio === ratio ? "bg-[#C9A84C] text-[#0A0A0F]" : "bg-[#111118] border border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
+                    aspectRatio === ratio ? "bg-[#C9A84C] text-[#0A0A0F]" : "bg-[#0A0A0F] border border-[#C9A84C33] text-[#F5F0E8AA] hover:border-[#C9A84C66]"
                   }`}
                 >{ratio}</button>
               ))}
@@ -472,13 +517,23 @@ export default function VideoGeneration() {
       </div>
 
       {loading && (
-        <div className="bg-[#111118] border border-[#C9A84C22] rounded-xl p-6">
+        <div className="bg-[#0A0A0F] border border-[#C9A84C22] rounded-xl p-6">
           <LoadingRing
             progress={progress}
             estimatedSeconds={Math.max(0, Math.round((duration * 8) * (1 - progress / 100)))}
             onCancel={() => { setCancelled(true); setLoading(false); }}
             label={hasImage ? "Animating your image..." : "Generating your video..."}
           />
+        </div>
+      )}
+
+      {pendingRequestId && !loading && !result && (
+        <div className="bg-[#0A0A0F] border border-[#C9A84C44] rounded-xl p-5 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-body text-[#F5F0E8]">Your video is still generating on WaveSpeed.</p>
+            <p className="text-xs text-[#F5F0E855] mt-1">Some models take 8–12 minutes for longer clips. Click to reconnect.</p>
+          </div>
+          <GoldButton size="sm" onClick={checkAgain}>Check Again</GoldButton>
         </div>
       )}
 
