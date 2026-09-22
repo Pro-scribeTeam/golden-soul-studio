@@ -46,15 +46,24 @@ export async function POST(req: NextRequest) {
       ? (I2V_MODEL_MAP[model] || "kwaivgi/kling-v3.0-std/image-to-video")
       : (T2V_MODEL_MAP[model] || "bytedance/seedance-2.0/text-to-video");
 
-    const resolution = RESOLUTION_MAP[quality as string] || "720p";
+    // MiniMax H3 only accepts 768p or 2k — map accordingly
+    const MINIMAX_H3_MODELS = new Set([
+      "wavespeed-ai/minimax-h3/text-to-video",
+      "wavespeed-ai/minimax-h3/image-to-video",
+    ]);
+    const H3_RESOLUTION_MAP: Record<string, string> = {
+      Draft: "768p", Standard: "768p", High: "2k", Ultra: "2k", MAX: "2k",
+    };
+    const resolution = MINIMAX_H3_MODELS.has(modelId)
+      ? (H3_RESOLUTION_MAP[quality as string] || "768p")
+      : (RESOLUTION_MAP[quality as string] || "720p");
+
     const dur = Math.min(15, Math.max(4, Number(duration) || 5));
 
-    // Models that support enable_audio — others do not accept this param
+    // Only Veo 3 uses enable_audio — MiniMax H3 generates audio automatically (no param needed)
     const AUDIO_MODELS = new Set([
       "google/veo-3/text-to-video",
       "google/veo-3/image-to-video",
-      "wavespeed-ai/minimax-h3/text-to-video",
-      "wavespeed-ai/minimax-h3/image-to-video",
     ]);
 
     const input: Record<string, unknown> = {
